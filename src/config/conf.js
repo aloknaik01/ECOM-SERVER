@@ -1,4 +1,6 @@
-require("dotenv").config();
+import dotenv from "dotenv";
+
+dotenv.config();
 
 function required(key, fallback) {
   const value = process.env[key] ?? fallback;
@@ -10,7 +12,7 @@ function required(key, fallback) {
 
 const _conf = {
   port: Number(required("PORT", 3000)),
-  portfolioUrl: required("PORTFOLIO_URL"),
+  clientUrl: required("CLIENT_URL"),
   smtp: {
     host: required("SMTP_HOST"),
     port: Number(required("SMTP_PORT")),
@@ -25,4 +27,4 @@ const _conf = {
   },
 };
 
-module.exports = Object.freeze(_conf);
+export default Object.freeze(_conf);
