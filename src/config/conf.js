@@ -19,6 +19,11 @@ const _conf = {
     service: required("SMTP_SERVICE"),
     mail: required("SMTP_MAIL"),
     password: required("SMTP_PASSWORD"),
+    db_user: required("DB_USER"),
+    db_host: required("DB_HOST"),
+    db_password: required("DB_PASSWORD"),
+    db_name: required("DB_NAME"),
+    db_port: required("DB_PORT"),
   },
   cookieExpires: Number(required("COOKIE_EXPIRES", 7)),
   jwt: {
