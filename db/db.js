@@ -17,3 +17,5 @@ try {
   console.log("Some error occured while connecting to databse!", error);
   process.exit(1);
 }
+
+export default database;
