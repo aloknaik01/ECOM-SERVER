@@ -14,7 +14,7 @@ export async function createUserTable() {
     `;
     await database.query(query);
   } catch (error) {
-    console.log("Error While Creating User table", error);
+    console.log("Failed to create user table", error);
     process.exit(1);
   }
 }
