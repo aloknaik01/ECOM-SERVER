@@ -4,6 +4,7 @@ import cors from "cors";
 import conf from "./config/conf.js";
 import cookieParser from "cookie-parser";
 import fileUpload from "express-fileupload";
+import { createTables } from "./utils/createTable.js";
 
 const app = express();
 config();
@@ -25,5 +26,7 @@ app.use(
     useTempFiles: true,
   })
 );
+
+createTables();
 
 export default app;
