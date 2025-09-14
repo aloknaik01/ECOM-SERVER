@@ -1,13 +1,13 @@
 import pkg from "pg";
 const { Client } = pkg;
-import { conf } from "../src/config/conf.js";
+import conf from "../config/conf.js";
 
 const database = new Client({
-  user: conf.db_user,
-  host: conf.db_host,
-  database: conf.db_password,
-  password: conf.db_name,
-  port: conf.db_port,
+  user: conf.db.db_user,
+  host: conf.db.db_host,
+  database: conf.db.db_name,
+  password: conf.db.db_password,
+  port: conf.db.db_port,
 });
 
 try {
