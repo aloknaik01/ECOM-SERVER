@@ -5,6 +5,7 @@ import conf from "./config/conf.js";
 import cookieParser from "cookie-parser";
 import fileUpload from "express-fileupload";
 import { createTables } from "./utils/createTable.js";
+import { errorMiddleware } from "./middlewares/errorMiddleware.js";
 
 const app = express();
 config();
@@ -28,5 +29,6 @@ app.use(
 );
 
 createTables();
+app.use(errorMiddleware);
 
 export default app;
