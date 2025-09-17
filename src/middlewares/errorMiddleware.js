@@ -14,7 +14,7 @@ export async function errorMiddleware(err, req, res, next) {
     err = new ErrorHandler(message, 400);
   }
 
-  if (err.name == "jsonWebTokenError") {
+  if (err.name == "JsonWebTokenError") {
     const message = "Json web token is invalid , try again!";
     err = new ErrorHandler(message, 400);
   }
@@ -24,9 +24,14 @@ export async function errorMiddleware(err, req, res, next) {
   }
 
   const errorMessage = err.errors
-    ? Object.values(errors)
+    ? Object.values(err.errors)
         .map((error) => error.message)
         .join(" ")
-    : error.message;
+    : err.message;
+
+  return res.status(err.statusCode).json({
+    success: false,
+    errorMessage,
+  });
 }
 export default ErrorHandler;
