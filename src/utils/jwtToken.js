@@ -1,7 +1,7 @@
 import jwt from "jsonwebtoken";
-import conf from "../config/conf";
+import conf from "../config/conf.js";
 
-const sendToken = (user, statusCode, message, res) => {
+ export const sendToken = (user, statusCode, message, res) => {
   const token = jwt.sign({ id: user.id }, conf.jwt.secretKey, {
     expiresIn: conf.jwt.expires,
   });
