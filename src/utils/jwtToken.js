@@ -7,7 +7,7 @@ import conf from "../config/conf.js";
   });
 
   res
-    .statuc(statusCode)
+    .status(statusCode)
     .cookie("token", token, {
       expires: new Date(Date.now() + conf.cookieExpires * 24 * 60 * 60 * 1000),
       http: true,
