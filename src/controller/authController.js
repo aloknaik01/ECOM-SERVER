@@ -4,6 +4,7 @@ import database from "../db/db.js";
 import bcrypt from "bcrypt";
 import { sendToken } from "../utils/jwtToken.js";
 
+//register
 export const register = catchError(async (req, res, next) => {
   const { name, email, password } = req.body;
 
@@ -31,6 +32,32 @@ export const register = catchError(async (req, res, next) => {
 
   sendToken(user.rows[0], 201, "User registered successfully", res);
 });
-export const login = catchError(async (req, res, next) => {});
+
+//login
+export const login = catchError(async (req, res, next) => {
+  const { email, password } = req.body || {};
+
+  if (!email || !password) {
+    return next(new ErrorHandler("email and password is required!", 400));
+  }
+
+  const user = await database.query(`SELECT * FROM users WHERE email=$1`, [
+    email,
+  ]);
+
+  if (user.rows.length === 0) {
+    return next(new ErrorHandler("Invalid email and password", 401));
+  }
+
+  const isPassMatch = await bcrypt.compare(password, user.rows[0].password);
+
+  if (!isPassMatch) {
+    return next(new ErrorHandler("Invalid email and password", 401));
+  }
+
+  sendToken(user.rows[0], 200, "logged in", res);
+});
+
+
 export const getUser = catchError(async (req, res, next) => {});
 export const logout = catchError(async (req, res, next) => {});
