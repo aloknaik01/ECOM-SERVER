@@ -20,3 +20,18 @@ export const isAuth = catchError(async (req, res, next) => {
   req.user = user.rows[0];
   next();
 });
+
+export const authorizeRoles = (...roles) => {
+  return (req, res, next) => {
+    if (!roles.includes(req.user.role)) {
+      return next(
+        new ErrorHandler(
+          `Role ${req.user.role} is not allowed to access the resource`,
+          403
+        )
+      );
+    }
+
+    next();
+  };
+};
