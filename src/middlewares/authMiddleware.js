@@ -13,7 +13,7 @@ export const isAuth = catchError(async (req, res, next) => {
 
   const decoded = jwt.verify(token, conf.jwt.secretKey);
 
-  const user = await database.query(`SELECT * FROM users WHERE id=&1 LIMIT 1`, [
+  const user = await database.query(`SELECT * FROM users WHERE id=$1 LIMIT 1`, [
     decoded.id,
   ]);
 
