@@ -3,6 +3,9 @@ import { catchError } from "../middlewares/catchError.js";
 import database from "../db/db.js";
 import bcrypt from "bcrypt";
 import { sendToken } from "../utils/jwtToken.js";
+import { generateResetPasswordToken } from "../utils/generateResetPasswordToken.js";
+import { generateResetPasswordEmailTemplate } from "../utils/generateResetPasswordEmailTemplate.js";
+import { sendEmail } from "../utils/sendEmail.js";
 
 //register
 export const register = catchError(async (req, res, next) => {
@@ -58,6 +61,7 @@ export const login = catchError(async (req, res, next) => {
   sendToken(user.rows[0], 200, "logged in", res);
 });
 
+//get user
 export const getUser = catchError(async (req, res, next) => {
   const { user } = req;
 
@@ -67,6 +71,7 @@ export const getUser = catchError(async (req, res, next) => {
   });
 });
 
+//logout
 export const logout = catchError(async (req, res, next) => {
   res
     .status(200)
@@ -79,3 +84,103 @@ export const logout = catchError(async (req, res, next) => {
       message: "Logged out successfully. ",
     });
 });
+
+//forgot password
+export const forgotPassword = catchError(async (req, res, next) => {
+  const { email } = req.body || {};
+  const { frontend_url } = req.query;
+
+  let userResult = await database.query(
+    `SELECT * FROM users WHERE email = $1`,
+    [email]
+  );
+
+  if (userResult.rows.length === 0) {
+    return next(new ErrorHandler("Invalid email!", 404));
+  }
+
+  const user = userResult.rows[0];
+
+  console.log("working ");
+  const { hashedToken, resetToken, resetPasswordExpireTime } =
+    generateResetPasswordToken();
+
+  console.log("still");
+  await database.query(
+    `UPDATE users SET   reset_password_token = $1, reset_password_expires = to_timestamp($2) WHERE email = $3 `,
+    [hashedToken, resetPasswordExpireTime / 1000, email]
+  );
+
+  console.log("still 2");
+
+  const resetPasswordUrl = `${frontend_url}/password/forgot/${resetToken}`;
+
+  console.log("still 3");
+  const messages = generateResetPasswordEmailTemplate(resetPasswordUrl);
+
+  console.log("still 4");
+
+  try {
+    await sendEmail({
+      email: user.email,
+      subject: "ShopSphere Password Recovery",
+      messages,
+    });
+
+    res.status(200).json({
+      success: true,
+      message: `Email send to ${user.email} successfully`,
+    });
+  } catch (error) {
+    `UPDATE users  SET reset_password_token = NULL , reset_password_expires = NULL, WHERE email = $1`,
+      [email];
+
+    return next(new ErrorHandler("Email cannot be sent", 500));
+  }
+});
+
+// export const forgotPassword = catchError(async (req, res, next) => {
+//   const { email } = req.body || {};
+//   const { frontend_url } = req.query;
+
+//   const userResult = await database.query(
+//     `SELECT * FROM users WHERE email = $1`,
+//     [email]
+//   );
+
+//   if (userResult.rows.length === 0) {
+//     return next(new ErrorHandler("Invalid email!", 404));
+//   }
+
+//   const user = userResult.rows[0];
+
+//   const { hashedToken, resetToken, resetPasswordExpireTime } =
+//     generateResetPasswordToken();
+
+//   await database.query(
+//     `UPDATE users SET reset_password_token = $1, reset_password_expires = to_timestamp($2) WHERE email = $3`,
+//     [hashedToken, resetPasswordExpireTime / 1000, email]
+//   );
+
+//   const resetPasswordUrl = `${frontend_url}/password/forgot/${resetToken}`;
+//   const message = generateResetPasswordEmailTemplate(resetPasswordUrl);
+
+//   try {
+//     await sendEmail({
+//       email: user.email,
+//       subject: "ShopSphere Password Recovery",
+//       html: message,
+//     });
+
+//     res.status(200).json({
+//       success: true,
+//       message: `Email sent to ${user.email} successfully`,
+//     });
+//   } catch (error) {
+//     await database.query(
+//       `UPDATE users SET reset_password_token = NULL, reset_password_expires = NULL WHERE email = $1`,
+//       [email]
+//     );
+//     return next(new ErrorHandler("Email cannot be sent", 500));
+//   }
+// });
