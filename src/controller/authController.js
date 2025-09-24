@@ -6,13 +6,19 @@ import { sendToken } from "../utils/jwtToken.js";
 import { generateResetPasswordToken } from "../utils/generateResetPasswordToken.js";
 import { generateResetPasswordEmailTemplate } from "../utils/generateResetPasswordEmailTemplate.js";
 import { sendEmail } from "../utils/sendEmail.js";
-
+import crypto, { hash } from "crypto";
 //register
 export const register = catchError(async (req, res, next) => {
   const { name, email, password } = req.body;
 
   if (!name || !email || !password) {
     return next(new ErrorHandler("All fields are required!", 400));
+  }
+
+  if (password.length < 8 || password.length > 16) {
+    return next(
+      new ErrorHandler("Password must be in between 8 to 16 character", 400)
+    );
   }
 
   const isRegister = await database.query(
@@ -139,48 +145,42 @@ export const forgotPassword = catchError(async (req, res, next) => {
   }
 });
 
-// export const forgotPassword = catchError(async (req, res, next) => {
-//   const { email } = req.body || {};
-//   const { frontend_url } = req.query;
+export const resetPassowrd = catchError(async (req, res, next) => {
+  const { token } = req.params;
+  const resetPassowrdToken = crypto
+    .createHash("sha256")
+    .update(token)
+    .digest("hex");
 
-//   const userResult = await database.query(
-//     `SELECT * FROM users WHERE email = $1`,
-//     [email]
-//   );
+  const user = await database.query(
+    `SELECT * FORM users WHERE reset_password_token = $1 AND reset_password_expires > NOW()`,
+    [resetPassowrdToken]
+  );
 
-//   if (userResult.rows.length === 0) {
-//     return next(new ErrorHandler("Invalid email!", 404));
-//   }
+  if (user.rows.length === 0) {
+    return next(new ErrorHandler("Invalid or expired reset token", 400));
+  }
 
-//   const user = userResult.rows[0];
+  if (req.body?.password !== req.body?.conformPassword) {
+    return next(new ErrorHandler("Password not matched", 400));
+  }
 
-//   const { hashedToken, resetToken, resetPasswordExpireTime } =
-//     generateResetPasswordToken();
+  if (
+    req.body?.password?.length < 8 ||
+    req.body?.password?.length > 16 ||
+    req.body?.conformPassword?.length < 8 ||
+    req.body?.conformPassword?.length > 16
+  ) {
+    return next(
+      new ErrorHandler("Password must be in between 8 to 16 character", 400)
+    );
+  }
 
-//   await database.query(
-//     `UPDATE users SET reset_password_token = $1, reset_password_expires = to_timestamp($2) WHERE email = $3`,
-//     [hashedToken, resetPasswordExpireTime / 1000, email]
-//   );
+  const hashedPassword = bcrypt.hash(req.body.password, 10);
 
-//   const resetPasswordUrl = `${frontend_url}/password/forgot/${resetToken}`;
-//   const message = generateResetPasswordEmailTemplate(resetPasswordUrl);
-
-//   try {
-//     await sendEmail({
-//       email: user.email,
-//       subject: "ShopSphere Password Recovery",
-//       html: message,
-//     });
-
-//     res.status(200).json({
-//       success: true,
-//       message: `Email sent to ${user.email} successfully`,
-//     });
-//   } catch (error) {
-//     await database.query(
-//       `UPDATE users SET reset_password_token = NULL, reset_password_expires = NULL WHERE email = $1`,
-//       [email]
-//     );
-//     return next(new ErrorHandler("Email cannot be sent", 500));
-//   }
-// });
+  const updatedUser = await database.query(
+    `UPDATE users SET password = $1, reset_password_token = NULL , reset_password_expires = NULL WHERE id = $2 RETURNING * `,
+    [hashedPassword, user.rows[0].id]
+  );
+  sendToken(updatedUser.rows[0], 200, "Password reset successfully", 200);
+});
