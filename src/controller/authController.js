@@ -6,7 +6,8 @@ import { sendToken } from "../utils/jwtToken.js";
 import { generateResetPasswordToken } from "../utils/generateResetPasswordToken.js";
 import { generateResetPasswordEmailTemplate } from "../utils/generateResetPasswordEmailTemplate.js";
 import { sendEmail } from "../utils/sendEmail.js";
-import crypto, { hash } from "crypto";
+import crypto from "crypto";
+import { v2 as cloudinary } from "cloudinary";
 //register
 export const register = catchError(async (req, res, next) => {
   const { name, email, password } = req.body;
@@ -145,6 +146,7 @@ export const forgotPassword = catchError(async (req, res, next) => {
   }
 });
 
+//reset password
 export const resetPassowrd = catchError(async (req, res, next) => {
   const { token } = req.params;
   const resetPassowrdToken = crypto
@@ -185,6 +187,7 @@ export const resetPassowrd = catchError(async (req, res, next) => {
   sendToken(updatedUser.rows[0], 200, "Password reset successfully", 200);
 });
 
+// update password
 export const updatePassword = catchError(async (req, res, next) => {
   const { currentPassword, newPassword, confirmNewPassword } = req.body;
 
@@ -223,4 +226,46 @@ export const updatePassword = catchError(async (req, res, next) => {
     success: true,
     message: "password updated successfully",
   });
+});
+
+//update profile
+export const updateFrofile = catchError(async (req, res, next) => {
+  const { name, email } = req.body;
+  if (!email || !name) {
+    return next(new ErrorHandler("all fields are required!", 400));
+  }
+
+  if (name.trim().length === 0 || email.trim().length === 0) {
+    return next(new ErrorHandler("name and email cannot be empty", 400));
+  }
+
+  let avatarData = {};
+  if (req.files || req.files.avatar) {
+    const { avatar } = req.files;
+
+    if (req.user?.avatar?.public_id) {
+      await cloudinary.uploader.destroy(req.files.avatar.public_id);
+    }
+
+    const nreProfileImage = await cloudinary.uploader.upload(
+      avatar.tempFilePath,
+      {
+        folder: "ECOM-AVATARS",
+        width: 150,
+        crop: "scale",
+      }
+    );
+
+    avatarData = {
+      public_id: nreProfileImage.public_id,
+      url: nreProfileImage.secure_url,
+    };
+  }
+
+  let user;
+
+  if(Object.keys(avatarData).length === 0
+  ) {
+    user = await 
+  }
 });
