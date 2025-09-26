@@ -247,7 +247,7 @@ export const updateFrofile = catchError(async (req, res, next) => {
       await cloudinary.uploader.destroy(req.files.avatar.public_id);
     }
 
-    const nreProfileImage = await cloudinary.uploader.upload(
+    const newProfileImage = await cloudinary.uploader.upload(
       avatar.tempFilePath,
       {
         folder: "ECOM-AVATARS",
@@ -257,8 +257,8 @@ export const updateFrofile = catchError(async (req, res, next) => {
     );
 
     avatarData = {
-      public_id: nreProfileImage.public_id,
-      url: nreProfileImage.secure_url,
+      public_id: newProfileImage.public_id,
+      url: newProfileImage.secure_url,
     };
   }
 
@@ -266,6 +266,19 @@ export const updateFrofile = catchError(async (req, res, next) => {
 
   if(Object.keys(avatarData).length === 0
   ) {
-    user = await 
+    user = await database.query("UPDATE users SET name = $1 , email = $2  WHERE  id = $3 RETURNING *", 
+      [name, email, req?.user.id])
   }
+  else {
+    user = await database.query("UPDATE users SET name = $1 , email = $2 , avatar = $3 WHERE  id = $4 RETURNING *",
+      [name, email, avatarData,  req?.user.id]
+    )
+  }
+
+
+  res.status(200).json({
+    success: true,
+    message: "Profile Updated Successfully!",
+    user: user.rows[0]
+  })
 });
