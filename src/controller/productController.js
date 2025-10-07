@@ -2,6 +2,8 @@ import { catchError } from "../middlewares/catchError.js";
 import database from "../db/db.js";
 import ErrorHandler from "../middlewares/errorMiddleware.js";
 import { v2 as cloudinary  } from "cloudinary";
+
+
 export const createProduct = catchError(async (req, res ,next) => {
     const {name, description, price,category, stock} = req.body; 
 
@@ -34,6 +36,13 @@ export const createProduct = catchError(async (req, res ,next) => {
     }
 
 
-    const product = await database.query(`INSERT INTO users  (name, description, price,category, stock, images , created_by ) values($1,$2,$3,$4,$5,$6,$7 RETURNING * )`)
+    const product = await database.query(`INSERT INTO users  (name, description, price,category, stock, images , created_by ) values($1,$2,$3,$4,$5,$6,$7) RETURNING *`, [name, description, price,category, stock, JSON.stringify(uploadedImages), created_by]);
+
+
+    res.status(201).json({
+        success: true,
+        message: "Product Created Successfully",
+        product: product.rows[0]
+    })
     
 })
