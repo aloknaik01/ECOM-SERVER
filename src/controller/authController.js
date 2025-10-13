@@ -8,6 +8,8 @@ import { generateResetPasswordEmailTemplate } from "../utils/generateResetPasswo
 import { sendEmail } from "../utils/sendEmail.js";
 import crypto from "crypto";
 import { v2 as cloudinary } from "cloudinary";
+
+
 //register
 export const register = catchError(async (req, res, next) => {
   const { name, email, password } = req.body;

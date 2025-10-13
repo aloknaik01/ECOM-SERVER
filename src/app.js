@@ -25,7 +25,7 @@ app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 app.use(
   fileUpload({
-    tempFileDir: "/uploads",
+    tempFileDir: "./uploads",
     useTempFiles: true,
   })
 );
