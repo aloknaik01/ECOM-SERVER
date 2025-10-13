@@ -69,3 +69,56 @@ export const getProductById = catchError(async (req, res, next) => {
     })
 
 })
+
+//fetch allproducts
+
+
+export const fetchAllProducts = catchError(async (req, res, next) => {
+    const { availability, price, ratings, category, search } = req.query;
+    const page = parseInt(req.query.page) || 1;
+    const limit = 10;
+    const offset = (page - 1) * limit;
+
+    const conditions = [];
+    const values = [];
+
+    let index = 1;
+    const paginationPlaceholders = [];
+
+
+
+    //availibility filter product
+    if (availability === 'in-stock') {
+        conditions.push(`stock > 5`)
+
+    }
+
+    else if (availability === 'limited') {
+        conditions.push(`stock > 0 AND stock <= 5`)
+    }
+
+    else if (availability === 'out-of-stock') {
+        conditions.push('stock = 0')
+    }
+
+
+
+    //filter product by price
+    if (price) {
+        const [minPrice, maxPrice] = price.split('-');
+        if (minPrice && maxPrice) {
+            conditions.push(`price IN BETWEEN $${index} AND $${index + 1}`)
+            values.push(minPrice, maxPrice);
+            index += 2;
+        }
+    }
+
+
+
+    //filter product by category 
+    if (category) {
+        conditions.push(`category ILIKE $${index}`)
+        values.push(`%${category}%`)
+        index++;
+    }
+})
