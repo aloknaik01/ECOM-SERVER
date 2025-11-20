@@ -8,6 +8,10 @@ cloudinary.config({
   api_secret: conf.api_secret,
 });
 
-app.listen(conf.port, () => {
+// app.listen(conf.port, () => {
+//   console.log(`Server running on http://localhost:${conf.port}`);
+// });
+
+app.listen(conf.port, '0.0.0.0', () => {
   console.log(`Server running on http://localhost:${conf.port}`);
 });

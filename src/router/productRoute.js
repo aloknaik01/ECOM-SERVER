@@ -9,3 +9,4 @@ const router = express.Router();
 router.post("/admin/add-product", isAuth, authorizeRoles("Admin"), createProduct);
 
 export default router;
+76
