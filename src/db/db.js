@@ -4,7 +4,7 @@ const { Client } = pkg;
 const database = new Client({
   user: process.env.DB_USER || "postgres",
   host: process.env.DB_HOST || "localhost",
-  database: process.env.DB_DATABASE || "mern_ecommerce_store",
+  database: process.env.DB_DATABASE || "pern_ecommerce_store",
   password: process.env.DB_PASSWORD || "alok@pgadmin",
   port: process.env.DB_PORT || 5432,
 });
