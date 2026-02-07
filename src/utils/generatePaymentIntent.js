@@ -1,13 +1,16 @@
 import database from "../db/db.js";
 import Stripe from "stripe";
 
-const stripe = Stripe("PASTE_YOUR_STRIPE_SECRET_KEY");
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
 export async function generatePaymentIntent(orderId, totalPrice) {
   try {
     const paymentIntent = await stripe.paymentIntents.create({
-      amount: totalPrice * 100,
+      amount: totalPrice * 100, // Convert to cents
       currency: "usd",
+      metadata: {
+        orderId: orderId,
+      },
     });
 
     await database.query(
