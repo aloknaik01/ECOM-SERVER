@@ -6,7 +6,7 @@ import fileUpload from "express-fileupload";
 import { createTables } from "./utils/createTables.js";
 import { errorMiddleware } from "./middlewares/errorMiddleware.js";
 import authRouter from "./router/authRoutes.js";
-import productRouter from "./router/productRoutes.js"; // ✅ FIXED: Uncommented
+import productRouter from "./router/productRoutes.js"; 
 import adminRouter from "./router/adminRoutes.js";
 import orderRouter from "./router/orderRoutes.js";
 import Stripe from "stripe";
@@ -18,6 +18,7 @@ dotenv.config();
 
 // Initialize Stripe with environment variable
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+// console.log("Stripe Key:", process.env.STRIPE_SECRET_KEY);
 
 app.use(
   cors({

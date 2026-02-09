@@ -1,6 +1,6 @@
 import ErrorHandler from "../middlewares/errorMiddleware.js";
 import { catchAsyncErrors } from "../middlewares/catchAsyncError.js";
-import { generatePaymentIntent } from "../utils/generatePaymentIntent.js";
+// import { generatePaymentIntent } from "../utils/generatePaymentIntent.js";
 import database from "../db/db.js";
 
 export const placeNewOrder = catchAsyncErrors(async (req, res, next) => {
