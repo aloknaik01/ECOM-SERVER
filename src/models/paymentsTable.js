@@ -11,7 +11,7 @@ export async function createPaymentsTable() {
         FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE);`;
     await database.query(query);
   } catch (error) {
-    console.error("❌ Failed To Create Payments Table.", error);
+    console.error("Failed To Create Payments Table.", error);
     process.exit(1);
   }
 }

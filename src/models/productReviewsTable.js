@@ -12,7 +12,7 @@ export async function createProductReviewsTable() {
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE);`;
     await database.query(query);
   } catch (error) {
-    console.error("❌ Failed To Create Products Reviews Table.", error);
+    console.error("Failed To Create Products Reviews Table.", error);
     process.exit(1);
   }
 }

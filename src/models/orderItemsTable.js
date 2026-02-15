@@ -14,7 +14,7 @@ export async function createOrderItemTable() {
              FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE);`;
     await database.query(query);
   } catch (error) {
-    console.error("❌ Failed To Create Ordered Items Table.", error);
+    console.error("Failed To Create Ordered Items Table.", error);
     process.exit(1);
   }
 }
