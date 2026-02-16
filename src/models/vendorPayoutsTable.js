@@ -17,8 +17,8 @@ export async function createVendorPayoutsTable() {
       FOREIGN KEY (processed_by) REFERENCES users(id) ON DELETE SET NULL
     );
     
-    CREATE INDEX idx_payouts_vendor_id ON vendor_payouts(vendor_id);
-    CREATE INDEX idx_payouts_status ON vendor_payouts(status);`;
+    CREATE INDEX IF NOT EXISTS idx_payouts_vendor_id ON vendor_payouts(vendor_id);
+    CREATE INDEX IF NOT EXISTS idx_payouts_status ON vendor_payouts(status);`;
     
     await database.query(query);
     console.log("Vendor Payouts Table Created Successfully");

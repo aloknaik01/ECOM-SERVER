@@ -19,9 +19,9 @@ export async function addVendorToProducts() {
         FOREIGN KEY (vendor_id) REFERENCES vendors(id) ON DELETE SET NULL
       `);
 
-      // Create index
+      // Create index only if it doesn't exist
       await database.query(`
-        CREATE INDEX idx_products_vendor_id ON products(vendor_id)
+        CREATE INDEX IF NOT EXISTS idx_products_vendor_id ON products(vendor_id)
       `);
 
       console.log("Added vendor_id to products table");

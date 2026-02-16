@@ -18,8 +18,8 @@ export async function createProductVariantsTable() {
       UNIQUE(product_id, size, color)
     );
     
-    CREATE INDEX idx_variants_product_id ON product_variants(product_id);
-    CREATE INDEX idx_variants_sku ON product_variants(sku);`;
+    CREATE INDEX IF NOT EXISTS idx_variants_product_id ON product_variants(product_id);
+    CREATE INDEX IF NOT EXISTS idx_variants_sku ON product_variants(sku);`;
     
     await database.query(query);
     console.log("Product Variants Table Created Successfully");

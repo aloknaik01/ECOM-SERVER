@@ -22,9 +22,9 @@ export async function createVendorSalesTable() {
       FOREIGN KEY (payout_id) REFERENCES vendor_payouts(id) ON DELETE SET NULL
     );
     
-    CREATE INDEX idx_vendor_sales_vendor_id ON vendor_sales(vendor_id);
-    CREATE INDEX idx_vendor_sales_order_id ON vendor_sales(order_id);
-    CREATE INDEX idx_vendor_sales_payout_status ON vendor_sales(payout_status);`;
+    CREATE INDEX IF NOT EXISTS idx_vendor_sales_vendor_id ON vendor_sales(vendor_id);
+    CREATE INDEX IF NOT EXISTS idx_vendor_sales_order_id ON vendor_sales(order_id);
+    CREATE INDEX IF NOT EXISTS idx_vendor_sales_payout_status ON vendor_sales(payout_status);`;
     
     await database.query(query);
     console.log("Vendor Sales Table Created Successfully");

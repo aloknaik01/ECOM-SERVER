@@ -29,8 +29,8 @@ export async function createVendorsTable() {
       FOREIGN KEY (approved_by) REFERENCES users(id) ON DELETE SET NULL
     );
     
-    CREATE INDEX idx_vendors_user_id ON vendors(user_id);
-    CREATE INDEX idx_vendors_status ON vendors(status);`;
+    CREATE INDEX IF NOT EXISTS idx_vendors_user_id ON vendors(user_id);
+    CREATE INDEX IF NOT EXISTS idx_vendors_status ON vendors(status);`;
     
     await database.query(query);
     console.log("Vendors Table Created Successfully");
