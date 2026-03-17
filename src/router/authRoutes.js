@@ -3,6 +3,7 @@ import {
   forgotPassword,
   getUser,
   login,
+  googleLogin,
   logout,
   register,
   resetPassword,
@@ -15,6 +16,7 @@ const router = express.Router();
 
 router.post("/register", register);
 router.post("/login", login);
+router.post("/google", googleLogin);
 router.get("/me", isAuthenticated, getUser);
 router.get("/logout", isAuthenticated, logout);
 router.post("/password/forgot", forgotPassword);

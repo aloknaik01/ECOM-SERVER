@@ -10,15 +10,15 @@ import {
   getAvailableColors,
   findVariant
 } from "../controllers/variantController.js";
-import { isAuthenticated, authorizedRoles } from "../middlewares/authMiddleware.js";
+import { isAuthenticated, authorizedRoles, isVendorOrAdmin } from "../middlewares/authMiddleware.js";
 
 const router = express.Router();
 
 // ADMIN ROUTES
-router.post("/admin/add/:productId", isAuthenticated, authorizedRoles("Admin"), addVariant);
-router.put("/admin/update/:variantId", isAuthenticated, authorizedRoles("Admin"), updateVariant);
-router.delete("/admin/delete/:variantId", isAuthenticated, authorizedRoles("Admin"), deleteVariant);
-router.get("/admin/all", isAuthenticated, authorizedRoles("Admin"), getAllVariants);
+router.post("/admin/add/:productId", isAuthenticated, isVendorOrAdmin, addVariant);
+router.put("/admin/update/:variantId", isAuthenticated, isVendorOrAdmin, updateVariant);
+router.delete("/admin/delete/:variantId", isAuthenticated, isVendorOrAdmin, deleteVariant);
+router.get("/admin/all", isAuthenticated, isVendorOrAdmin, getAllVariants);
 
 // PUBLIC ROUTES
 router.get("/product/:productId", getProductVariants);

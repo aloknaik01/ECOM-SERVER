@@ -4,13 +4,21 @@ export async function getAIRecommendation(req, res, userPrompt, products) {
 
   try {
     const geminiPrompt = `
-        Here is a list of avaiable products:
-        ${JSON.stringify(products, null, 2)}
+        System: You are an expert e-commerce assistant. 
+        User Request: "${userPrompt}"
+        Available Products: ${JSON.stringify(products.map(p => ({ id: p.id, name: p.name, price: p.price, category: p.category, ratings: p.ratings, stock: p.stock })), null, 2)}
 
-        Based on the following user request, filter and suggest the best matching products:
-        "${userPrompt}"
+        Task: 
+        1. Filter the products that best match the user's intent.
+        2. Consider price mentions (e.g., "under 500", "cheap", "expensive").
+        3. Consider quality mentions (e.g., "best rated", "top quality").
+        4. Consider availability (e.g., "in stock").
+        
+        Return a JSON object with two fields:
+        "products": an array of matching product objects (preserved with their original IDs).
+        "filtersDetected": an object describing the filters you applied (e.g., { "Price": "Under 500", "Quality": "Best Rated" }).
 
-        Only return the matching products in JSON format.
+        If no products match, return { "products": [], "filtersDetected": {} }.
     `;
 
     const response = await fetch(URL, {
@@ -27,21 +35,23 @@ export async function getAIRecommendation(req, res, userPrompt, products) {
     const cleanedText = aiResponseText.replace(/```json|```/g, ``).trim();
 
     if (!cleanedText) {
-      return res
-        .status(500)
-        .json({ success: false, message: "AI response is empty or invalid." });
+      return { success: true, products: [], filtersDetected: {} };
     }
 
-    let parsedProducts;
+    let parsedResponse;
     try {
-      parsedProducts = JSON.parse(cleanedText);
+      parsedResponse = JSON.parse(cleanedText);
     } catch (error) {
-      return res
-        .status(500)
-        .json({ success: false, message: "Failed to parse AI response" });
+       console.error("AI Parse Error:", cleanedText);
+       return { success: false, message: "Failed to parse AI response" };
     }
-    return { success: true, products: parsedProducts };
+    return { 
+      success: true, 
+      products: parsedResponse.products || [], 
+      filtersDetected: parsedResponse.filtersDetected || {} 
+    };
   } catch (error) {
-    res.status(500).json({ success: false, message: "Internal server error." });
+    console.error("AI Fetch Error:", error);
+    return { success: false, message: "Internal server error." };
   }
 }

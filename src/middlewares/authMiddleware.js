@@ -32,3 +32,33 @@ export const authorizedRoles = (...roles) => {
   };
 };
 
+export const isAdmin = (req, res, next) => {
+  if (req.user.role !== 'Admin') {
+    return next(
+      new ErrorHandler("Only Admins are allowed to access this resource.", 403)
+    );
+  }
+  next();
+};
+
+export const isVendorOrAdmin = catchAsyncErrors(async (req, res, next) => {
+  if (req.user.role === 'Admin') {
+    return next();
+  }
+
+  // Check if active vendor
+  const vendorRes = await database.query(
+    "SELECT id, status FROM vendors WHERE user_id = $1 AND status = 'active'",
+    [req.user.id]
+  );
+
+  if (vendorRes.rows.length === 0) {
+    return next(
+      new ErrorHandler("Only Admins or Active Vendors can perform this action.", 403)
+    );
+  }
+
+  req.vendor = vendorRes.rows[0];
+  next();
+});
+

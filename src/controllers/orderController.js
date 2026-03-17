@@ -1,7 +1,9 @@
 import ErrorHandler from "../middlewares/errorMiddleware.js";
 import { catchAsyncErrors } from "../middlewares/catchAsyncError.js";
-// import { generatePaymentIntent } from "../utils/generatePaymentIntent.js";
 import database from "../db/db.js";
+import { generatePaymentIntent } from "../utils/generatePaymentIntent.js";
+import { sendEmail } from "../utils/sendEmail.js";
+import { orderConfirmationTemplate, orderShippedTemplate, orderDeliveredTemplate } from "../utils/emailTemplates.js";
 
 export const placeNewOrder = catchAsyncErrors(async (req, res, next) => {
   const {
@@ -273,6 +275,31 @@ export const updateOrderStatus = catchAsyncErrors(async (req, res, next) => {
     `,
     [status, orderId]
   );
+
+  // Fetch user info for email
+  const userQuery = await database.query(`SELECT email, name FROM users WHERE id = $1`, [results.rows[0].buyer_id]);
+  const user = userQuery.rows[0];
+
+  if (user) {
+    let emailSubject = "";
+    let emailMessage = "";
+
+    if (status === "Shipped") {
+        emailSubject = "Your order has been shipped! - ShopEase";
+        emailMessage = orderShippedTemplate({ userName: user.name, orderId });
+    } else if (status === "Delivered") {
+        emailSubject = "Your order has been delivered! - ShopEase";
+        emailMessage = orderDeliveredTemplate({ userName: user.name, orderId });
+    }
+
+    if (emailMessage) {
+        try {
+            await sendEmail({ email: user.email, subject: emailSubject, message: emailMessage });
+        } catch (e) {
+            console.error("Failed to send order status email:", e.message);
+        }
+    }
+  }
 
   res.status(200).json({
     success: true,

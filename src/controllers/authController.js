@@ -8,6 +8,10 @@ import { sendEmail } from "../utils/sendEmail.js";
 import crypto from "crypto";
 import { v2 as cloudinary } from "cloudinary";
 import database from "../db/db.js";
+import { OAuth2Client } from "google-auth-library";
+
+const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+
 
 export const register = catchAsyncErrors(async (req, res, next) => {
   const { name, email, password } = req.body;
@@ -55,6 +59,50 @@ export const login = catchAsyncErrors(async (req, res, next) => {
     return next(new ErrorHandler("Invalid email or password.", 401));
   }
   sendToken(user.rows[0], 200, "Logged In.", res);
+});
+
+export const googleLogin = catchAsyncErrors(async (req, res, next) => {
+  const { credential } = req.body;
+
+  if (!credential) {
+    return next(new ErrorHandler("Google credential token is required.", 400));
+  }
+
+  try {
+    const ticket = await googleClient.verifyIdToken({
+      idToken: credential,
+      audience: process.env.GOOGLE_CLIENT_ID,
+    });
+
+    const payload = ticket.getPayload();
+    const { email, name, picture } = payload;
+
+    if (!email) {
+      return next(new ErrorHandler("Email not provided by Google.", 400));
+    }
+
+    const { rows } = await database.query(`SELECT * FROM users WHERE email = $1`, [email]);
+    let user = rows[0];
+
+    if (!user) {
+      // User doesn't exist, create a new one with a random secure password
+      const randomPassword = crypto.randomBytes(32).toString('hex');
+      const hashedPassword = await bcrypt.hash(randomPassword, 10);
+
+      const avatarData = picture ? { public_id: "google_avatar", url: picture } : null;
+
+      const newUser = await database.query(
+        "INSERT INTO users (name, email, password, avatar) VALUES ($1, $2, $3, $4) RETURNING *",
+        [name, email, hashedPassword, avatarData]
+      );
+      user = newUser.rows[0];
+    }
+
+    sendToken(user, 200, "Logged In with Google.", res);
+  } catch (error) {
+    console.error("Google verify error:", error);
+    return next(new ErrorHandler("Invalid Google Token.", 401));
+  }
 });
 
 export const getUser = catchAsyncErrors(async (req, res, next) => {

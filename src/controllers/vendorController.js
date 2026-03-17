@@ -7,10 +7,10 @@ import database from "../db/db.js";
 // POST /api/v1/vendor/register
 export const registerVendor = catchAsyncErrors(async (req, res, next) => {
   const userId = req.user.id;
-  const { 
-    store_name, 
-    store_description, 
-    business_email, 
+  const {
+    store_name,
+    store_description,
+    business_email,
     business_phone,
     business_address,
     tax_id,
@@ -210,12 +210,44 @@ export const getVendorDashboardStats = catchAsyncErrors(async (req, res, next) =
     [vendorId]
   );
 
-  // This month sales
-  const thisMonthSales = await database.query(
-    `SELECT COALESCE(SUM(vendor_earnings), 0) as total
+  // Monthly revenue for last 6 months
+  const monthlyRevenue = await database.query(
+    `SELECT 
+        to_char(sale_date, 'Mon YT') as month,
+        SUM(vendor_earnings) as earnings
      FROM vendor_sales
-     WHERE vendor_id = $1 
-     AND sale_date >= date_trunc('month', CURRENT_DATE)`,
+     WHERE vendor_id = $1
+     AND sale_date >= CURRENT_DATE - INTERVAL '6 months'
+     GROUP BY month, date_trunc('month', sale_date)
+     ORDER BY date_trunc('month', sale_date) ASC`,
+    [vendorId]
+  );
+
+  // Top 5 selling products
+  const topProducts = await database.query(
+    `SELECT 
+        p.name,
+        SUM(vs.quantity) as total_sold,
+        SUM(vs.vendor_earnings) as total_earnings
+     FROM vendor_sales vs
+     JOIN products p ON vs.product_id = p.id
+     WHERE vs.vendor_id = $1
+     GROUP BY p.id, p.name
+     ORDER BY total_sold DESC
+     LIMIT 5`,
+    [vendorId]
+  );
+
+  // Revenue by Category
+  const categoryRevenue = await database.query(
+    `SELECT 
+        p.category,
+        SUM(vs.vendor_earnings) as earnings
+     FROM vendor_sales vs
+     JOIN products p ON vs.product_id = p.id
+     WHERE vs.vendor_id = $1
+     GROUP BY p.category
+     ORDER BY earnings DESC`,
     [vendorId]
   );
 
@@ -243,7 +275,9 @@ export const getVendorDashboardStats = catchAsyncErrors(async (req, res, next) =
       totalSales: parseFloat(vendor.rows[0].total_sales) || 0,
       pendingBalance: parseFloat(vendor.rows[0].pending_balance) || 0,
       paidBalance: parseFloat(vendor.rows[0].paid_balance) || 0,
-      thisMonthSales: parseFloat(thisMonthSales.rows[0].total) || 0,
+      monthlyRevenue: monthlyRevenue.rows,
+      topProducts: topProducts.rows,
+      categoryRevenue: categoryRevenue.rows,
       recentSales: recentSales.rows
     }
   });
@@ -480,5 +514,21 @@ export const getVendorStore = catchAsyncErrors(async (req, res, next) => {
     success: true,
     vendor: vendor.rows[0],
     products: products.rows
+  });
+});
+
+// ADMIN: Get All Payouts
+// GET /api/v1/vendor/admin/payouts
+export const getAllPayouts = catchAsyncErrors(async (req, res, next) => {
+  const payouts = await database.query(`
+    SELECT vp.*, v.store_name, v.business_email
+    FROM vendor_payouts vp
+    JOIN vendors v ON vp.vendor_id = v.id
+    ORDER BY vp.requested_at DESC
+  `);
+
+  res.status(200).json({
+    success: true,
+    payouts: payouts.rows
   });
 });

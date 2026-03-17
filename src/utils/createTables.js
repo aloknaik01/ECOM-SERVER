@@ -13,6 +13,11 @@ import { createProductReviewsTable } from "../models/productReviewsTable.js";
 import { createProductsTable } from "../models/productTable.js";
 import { createShippingInfoTable } from "../models/shippingInfoTable.js";
 import { createPaymentsTable } from "../models/paymentsTable.js";
+import { createFlashSalesTable } from "../models/flashSalesTable.js";
+import { createAddressesTable } from "../models/addressesTable.js";
+import { createReturnsTable } from "../models/returnsTable.js";
+import { addImagesToReviews } from "../models/addImagesToReviews.js";
+import { addIconToProducts } from "../models/addIconToProducts.js";
 
 export async function createTables() {
   await createUserTable();
@@ -22,8 +27,8 @@ export async function createTables() {
   await createShippingInfoTable();
   await createPaymentsTable();
   await createProductReviewsTable();
-  
-  // NEW TABLES
+
+  // EXISTING TABLES
   await createWishlistTable();
   await createCouponsTable();
   await createCouponUsageTable();
@@ -31,5 +36,14 @@ export async function createTables() {
   await createVendorsTable();
   await createVendorPayoutsTable();
   await createVendorSalesTable();
-  await addVendorToProducts();  
-}
+  await addVendorToProducts();
+
+  // NEW TABLES
+  await createFlashSalesTable();
+  await createAddressesTable();
+  await createReturnsTable();
+
+  // MIGRATIONS
+  await addImagesToReviews();
+  await addIconToProducts();
+}

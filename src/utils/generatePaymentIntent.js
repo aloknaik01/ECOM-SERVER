@@ -1,9 +1,8 @@
 import database from "../db/db.js";
 import Stripe from "stripe";
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
-
 export async function generatePaymentIntent(orderId, totalPrice) {
+  const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
   try {
     const paymentIntent = await stripe.paymentIntents.create({
       amount: Math.round(totalPrice * 100), 

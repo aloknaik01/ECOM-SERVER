@@ -8,8 +8,9 @@ import database from "../db/db.js";
 // ADMIN ROUTES
 // POST /api/v1/product/admin/create
 export const createProduct = catchAsyncErrors(async (req, res, next) => {
-  const { name, description, price, category, stock } = req.body;
+  const { name, description, price, category, stock, directImageUrls, icon } = req.body;
   const created_by = req.user.id;
+  const vendor_id = req.vendor ? req.vendor.id : null;
 
   if (!name || !description || !price || !category || !stock) {
     return next(
@@ -18,6 +19,20 @@ export const createProduct = catchAsyncErrors(async (req, res, next) => {
   }
 
   let uploadedImages = [];
+
+  // Handle direct URLs if provided
+  if (directImageUrls) {
+    const urls = Array.isArray(directImageUrls) ? directImageUrls : [directImageUrls];
+    urls.forEach(url => {
+      if (url && url.trim()) {
+        uploadedImages.push({
+          url: url.trim(),
+          public_id: `url_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+        });
+      }
+    });
+  }
+
   if (req.files && req.files.images) {
     const images = Array.isArray(req.files.images)
       ? req.files.images
@@ -37,9 +52,9 @@ export const createProduct = catchAsyncErrors(async (req, res, next) => {
   }
 
   const product = await database.query(
-    `INSERT INTO products (name, description, price, category, stock, images, created_by)
-     VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
-    [name, description, price, category, stock, JSON.stringify(uploadedImages), created_by]
+    `INSERT INTO products (name, description, price, category, stock, images, created_by, vendor_id, icon)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
+    [name, description, price, category, stock, JSON.stringify(uploadedImages), created_by, vendor_id, icon]
   );
 
   res.status(201).json({
@@ -52,7 +67,7 @@ export const createProduct = catchAsyncErrors(async (req, res, next) => {
 // PUT /api/v1/product/admin/update/:id
 export const updateProduct = catchAsyncErrors(async (req, res, next) => {
   const { id } = req.params;                                        // ← fixed from productId
-  const { name, description, price, category, stock } = req.body;
+  const { name, description, price, category, stock, directImageUrls, icon } = req.body;
 
   if (!name || !description || !price || !category || !stock) {
     return next(
@@ -65,38 +80,62 @@ export const updateProduct = catchAsyncErrors(async (req, res, next) => {
     return next(new ErrorHandler("Product not found.", 404));
   }
 
-  // ── handle new image uploads ──────────────────────────────────
+  // Security check: if user is vendor, verify ownership
+  if (req.vendor && product.rows[0].vendor_id !== req.vendor.id) {
+    return next(new ErrorHandler("You don't have permission to edit this product.", 403));
+  }
+
+  // ── handle new image uploads or URL updates ──────────────────────────────────
   let images = product.rows[0].images; // keep existing images by default
 
-  if (req.files && req.files.images) {
-    // delete old images from cloudinary
+  if ((req.files && req.files.images) || directImageUrls) {
+    // delete old images from cloudinary if we are replacing them
     if (images && images.length > 0) {
       for (const img of images) {
-        await cloudinary.uploader.destroy(img.public_id);
+        // Only destroy if it looks like a cloudinary ID (not a direct URL pseudo-id)
+        if (img.public_id && !img.public_id.startsWith('url_')) {
+          await cloudinary.uploader.destroy(img.public_id);
+        }
       }
     }
 
-    // upload new images
     images = [];
-    const newImages = Array.isArray(req.files.images)
-      ? req.files.images
-      : [req.files.images];
 
-    for (const image of newImages) {
-      const result = await cloudinary.uploader.upload(image.tempFilePath, {
-        folder: "Ecommerce_Product_Images",
-        width: 1000,
-        crop: "scale",
+    // Add direct URLs if provided
+    if (directImageUrls) {
+      const urls = Array.isArray(directImageUrls) ? directImageUrls : [directImageUrls];
+      urls.forEach(url => {
+        if (url && url.trim()) {
+          images.push({
+            url: url.trim(),
+            public_id: `url_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+          });
+        }
       });
-      images.push({ url: result.secure_url, public_id: result.public_id });
+    }
+
+    // Add uploaded files if provided
+    if (req.files && req.files.images) {
+      const newImages = Array.isArray(req.files.images)
+        ? req.files.images
+        : [req.files.images];
+
+      for (const image of newImages) {
+        const result = await cloudinary.uploader.upload(image.tempFilePath, {
+          folder: "Ecommerce_Product_Images",
+          width: 1000,
+          crop: "scale",
+        });
+        images.push({ url: result.secure_url, public_id: result.public_id });
+      }
     }
   }
 
   const result = await database.query(
     `UPDATE products
-     SET name = $1, description = $2, price = $3, category = $4, stock = $5, images = $6
-     WHERE id = $7 RETURNING *`,
-    [name, description, price, category, stock, JSON.stringify(images), id]
+     SET name = $1, description = $2, price = $3, category = $4, stock = $5, images = $6, icon = $7
+     WHERE id = $8 RETURNING *`,
+    [name, description, price, category, stock, JSON.stringify(images), icon, id]
   );
 
   res.status(200).json({
@@ -113,6 +152,11 @@ export const deleteProduct = catchAsyncErrors(async (req, res, next) => {
   const product = await database.query("SELECT * FROM products WHERE id = $1", [id]);
   if (product.rows.length === 0) {
     return next(new ErrorHandler("Product not found.", 404));
+  }
+
+  // Security check
+  if (req.vendor && product.rows[0].vendor_id !== req.vendor.id) {
+    return next(new ErrorHandler("You don't have permission to delete this product.", 403));
   }
 
   const images = product.rows[0].images;
@@ -150,6 +194,13 @@ export const getAllProductsAdmin = catchAsyncErrors(async (req, res, next) => {
   const conditions = [];
   const values = [];
   let idx = 1;
+
+  // If vendor, only show their products
+  if (req.vendor) {
+    conditions.push(`p.vendor_id = $${idx}`);
+    values.push(req.vendor.id);
+    idx++;
+  }
 
   if (search) {
     conditions.push(`(p.name ILIKE $${idx} OR p.description ILIKE $${idx})`);
@@ -235,26 +286,31 @@ export const getAllProductsAdmin = catchAsyncErrors(async (req, res, next) => {
 // GET /api/v1/product/admin/statistics
 // Aggregate numbers for the admin dashboard
 export const getProductStatistics = catchAsyncErrors(async (req, res, next) => {
+  const vendorIdVal = req.vendor ? req.vendor.id : null;
+  const whereClause = vendorIdVal ? `WHERE vendor_id = ${vendorIdVal}` : "";
+  const whereClausePrefix = vendorIdVal ? `WHERE p.vendor_id = ${vendorIdVal}` : "";
+
   // total products
-  const totalProductsRes = await database.query("SELECT COUNT(*) FROM products");
+  const totalProductsRes = await database.query(`SELECT COUNT(*) FROM products ${whereClause}`);
   const totalProducts = parseInt(totalProductsRes.rows[0].count);
 
   // total inventory (sum of all stock)
-  const inventoryRes = await database.query("SELECT COALESCE(SUM(stock), 0) AS total FROM products");
+  const inventoryRes = await database.query(`SELECT COALESCE(SUM(stock), 0) AS total FROM products ${whereClause}`);
   const totalInventory = parseInt(inventoryRes.rows[0].total);
 
   // out-of-stock count
-  const outOfStockRes = await database.query("SELECT COUNT(*) FROM products WHERE stock = 0");
+  const outOfStockRes = await database.query(`SELECT COUNT(*) FROM products WHERE stock = 0 ${vendorIdVal ? 'AND vendor_id = ' + vendorIdVal : ''}`);
   const outOfStock = parseInt(outOfStockRes.rows[0].count);
 
   // low-stock count (1-5)
-  const lowStockRes = await database.query("SELECT COUNT(*) FROM products WHERE stock BETWEEN 1 AND 5");
+  const lowStockRes = await database.query(`SELECT COUNT(*) FROM products WHERE stock BETWEEN 1 AND 5 ${vendorIdVal ? 'AND vendor_id = ' + vendorIdVal : ''}`);
   const lowStock = parseInt(lowStockRes.rows[0].count);
 
   // products by category
   const categoriesRes = await database.query(`
     SELECT category, COUNT(*) AS count
     FROM products
+    ${whereClause}
     GROUP BY category
     ORDER BY count DESC
   `);
@@ -273,6 +329,7 @@ export const getProductStatistics = catchAsyncErrors(async (req, res, next) => {
     JOIN products p ON p.id = oi.product_id
     JOIN orders   o ON o.id = oi.order_id
     WHERE o.paid_at IS NOT NULL
+    ${vendorIdVal ? `AND p.vendor_id = ${vendorIdVal}` : ''}
     GROUP BY p.id
     ORDER BY total_sold DESC
     LIMIT 5
@@ -280,18 +337,23 @@ export const getProductStatistics = catchAsyncErrors(async (req, res, next) => {
 
   // average product rating
   const avgRatingRes = await database.query(`
-    SELECT COALESCE(AVG(ratings), 0) AS avg_rating FROM products
+    SELECT COALESCE(AVG(ratings), 0) AS avg_rating FROM products ${whereClause}
   `);
   const avgRating = parseFloat(avgRatingRes.rows[0].avg_rating).toFixed(2);
 
-  // total revenue from all paid orders
-  const revenueRes = await database.query(`
-    SELECT COALESCE(SUM(total_price), 0) AS total FROM orders WHERE paid_at IS NOT NULL
-  `);
+  // total revenue from all paid orders (Note: accurate vendor revenue is tracked in vendor_sales. This just shows naive calculation)
+  const revenueQuery = vendorIdVal
+    ? `SELECT COALESCE(SUM(oi.quantity * oi.price), 0) AS total FROM order_items oi JOIN orders o ON o.id = oi.order_id JOIN products p ON p.id = oi.product_id WHERE o.paid_at IS NOT NULL AND p.vendor_id = ${vendorIdVal}`
+    : `SELECT COALESCE(SUM(total_price), 0) AS total FROM orders WHERE paid_at IS NOT NULL`;
+  const revenueRes = await database.query(revenueQuery);
   const totalRevenue = parseFloat(revenueRes.rows[0].total);
 
   // total reviews across all products
-  const reviewsRes = await database.query("SELECT COUNT(*) FROM reviews");
+  const reviewsRes = await database.query(
+    vendorIdVal
+      ? `SELECT COUNT(*) FROM reviews r JOIN products p ON p.id = r.product_id WHERE p.vendor_id = ${vendorIdVal}`
+      : `SELECT COUNT(*) FROM reviews`
+  );
   const totalReviews = parseInt(reviewsRes.rows[0].count);
 
   res.status(200).json({
@@ -543,6 +605,7 @@ export const getProductById = catchAsyncErrors(async (req, res, next) => {
                   'review_id', r.id,
                   'rating',    r.rating,
                   'comment',   r.comment,
+                  'images',    r.images,
                   'created_at', r.created_at,
                   'reviewer',  json_build_object(
                                  'id',     u.id,
@@ -552,7 +615,11 @@ export const getProductById = catchAsyncErrors(async (req, res, next) => {
                 )
               ) FILTER (WHERE r.id IS NOT NULL),
               '[]'
-            ) AS reviews
+            ) AS reviews,
+            (SELECT json_build_object('discount_percent', fs.discount_percent, 'end_time', fs.end_time) 
+             FROM flash_sales fs 
+             WHERE fs.product_id = p.id AND fs.start_time <= NOW() AND fs.end_time >= NOW() AND fs.is_active = TRUE
+             LIMIT 1) AS active_flash_sale
      FROM products p
      LEFT JOIN reviews r ON p.id = r.product_id
      LEFT JOIN users   u ON r.user_id = u.id
@@ -617,6 +684,26 @@ export const postProductReview = catchAsyncErrors(async (req, res, next) => {
     return next(new ErrorHandler("Please provide rating and comment.", 400));
   }
 
+  // Handle Review Images
+  let reviewImages = [];
+  if (req.files && req.files.images) {
+    const images = Array.isArray(req.files.images)
+      ? req.files.images
+      : [req.files.images];
+
+    for (const image of images) {
+      const result = await cloudinary.uploader.upload(image.tempFilePath, {
+        folder: "Review_Images",
+        width: 800,
+        crop: "scale",
+      });
+      reviewImages.push({
+        url: result.secure_url,
+        public_id: result.public_id,
+      });
+    }
+  }
+
   // only allow reviews from verified purchasers
   const purchaseCheck = await database.query(
     `SELECT oi.product_id
@@ -650,14 +737,20 @@ export const postProductReview = catchAsyncErrors(async (req, res, next) => {
 
   let review;
   if (existing.rows.length > 0) {
+    // Optionally delete old images from cloudinary if updating
+    const oldImages = existing.rows[0].images || [];
+    for (const img of oldImages) {
+      await cloudinary.uploader.destroy(img.public_id);
+    }
+
     review = await database.query(
-      "UPDATE reviews SET rating = $1, comment = $2 WHERE product_id = $3 AND user_id = $4 RETURNING *",
-      [rating, comment, productId, req.user.id]
+      "UPDATE reviews SET rating = $1, comment = $2, images = $3 WHERE product_id = $4 AND user_id = $5 RETURNING *",
+      [rating, comment, JSON.stringify(reviewImages), productId, req.user.id]
     );
   } else {
     review = await database.query(
-      "INSERT INTO reviews (product_id, user_id, rating, comment) VALUES ($1, $2, $3, $4) RETURNING *",
-      [productId, req.user.id, rating, comment]
+      "INSERT INTO reviews (product_id, user_id, rating, comment, images) VALUES ($1, $2, $3, $4, $5) RETURNING *",
+      [productId, req.user.id, rating, comment, JSON.stringify(reviewImages)]
     );
   }
 
@@ -757,7 +850,7 @@ export const fetchAIFilteredProducts = catchAsyncErrors(async (req, res, next) =
   }
 
   // step 2 – AI refinement via Gemini
-  const { success, products } = await getAIRecommendation(
+  const { success, products, filtersDetected } = await getAIRecommendation(
     req, res, userPrompt, result.rows
   );
 
@@ -765,5 +858,6 @@ export const fetchAIFilteredProducts = catchAsyncErrors(async (req, res, next) =
     success,
     message: "AI filtered products.",
     products,
+    filtersDetected,
   });
 });

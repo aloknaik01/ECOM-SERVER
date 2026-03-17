@@ -9,7 +9,8 @@ import {
   getAllVendors,
   updateVendorStatus,
   processPayout,
-  getVendorStore
+  getVendorStore,
+  getAllPayouts
 } from "../controllers/vendorController.js";
 import { isAuthenticated, authorizedRoles } from "../middlewares/authMiddleware.js";
 
@@ -25,6 +26,7 @@ router.get("/payouts", isAuthenticated, getMyPayouts);
 
 // ADMIN ROUTES
 router.get("/admin/all", isAuthenticated, authorizedRoles("Admin"), getAllVendors);
+router.get("/admin/payouts", isAuthenticated, authorizedRoles("Admin"), getAllPayouts);
 router.put("/admin/update-status/:vendorId", isAuthenticated, authorizedRoles("Admin"), updateVendorStatus);
 router.put("/admin/process-payout/:payoutId", isAuthenticated, authorizedRoles("Admin"), processPayout);
 
