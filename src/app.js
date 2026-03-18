@@ -26,7 +26,7 @@ dotenv.config();
 const app = express();
 
 // Initialize Stripe with environment variable
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || "sk_test_dummy_key");
 // console.log("Stripe Key:", process.env.STRIPE_SECRET_KEY);
 
 app.use(
