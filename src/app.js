@@ -132,7 +132,7 @@ app.post(
           `SELECT o.*, u.email, u.name 
            FROM orders o 
            JOIN users u ON o.buyer_id = u.id 
-           WHERE o.id = $1`, 
+           WHERE o.id = $1`,
           [orderId]
         );
         const shippingData = await database.query(`SELECT * FROM shipping_info WHERE order_id = $1`, [orderId]);
