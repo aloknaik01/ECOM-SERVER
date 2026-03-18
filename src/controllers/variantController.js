@@ -9,6 +9,13 @@ export const addVariant = catchAsyncErrors(async (req, res, next) => {
   const { productId } = req.params;
   const { sku, size, color, material, price, stock, is_default } = req.body;
 
+  // Validation
+  if (!price || stock === undefined || stock === null) {
+    return next(new ErrorHandler("Price and Stock are required", 400));
+  }
+
+  const isDefault = is_default === 'true' || is_default === true;
+
   // Check if product exists
   const productCheck = await database.query(
     "SELECT id FROM products WHERE id = $1",
@@ -55,7 +62,7 @@ export const addVariant = catchAsyncErrors(async (req, res, next) => {
   }
 
   // If this is default variant, unset other defaults
-  if (is_default) {
+  if (isDefault) {
     await database.query(
       "UPDATE product_variants SET is_default = false WHERE product_id = $1",
       [productId]
@@ -72,10 +79,10 @@ export const addVariant = catchAsyncErrors(async (req, res, next) => {
       size || null,
       color || null,
       material || null,
-      price,
-      stock,
+      parseFloat(price),
+      parseInt(stock),
       JSON.stringify(uploadedImages),
-      is_default || false
+      isDefault
     ]
   );
 
@@ -91,6 +98,8 @@ export const addVariant = catchAsyncErrors(async (req, res, next) => {
 export const updateVariant = catchAsyncErrors(async (req, res, next) => {
   const { variantId } = req.params;
   const { size, color, material, price, stock, is_default } = req.body;
+
+  const isDefault = is_default === 'true' || is_default === true;
 
   // Check if variant exists
   const variantCheck = await database.query(
@@ -131,7 +140,7 @@ export const updateVariant = catchAsyncErrors(async (req, res, next) => {
   }
 
   // If setting as default, unset others
-  if (is_default) {
+  if (isDefault) {
     await database.query(
       "UPDATE product_variants SET is_default = false WHERE product_id = $1 AND id != $2",
       [variant.product_id, variantId]
@@ -147,10 +156,10 @@ export const updateVariant = catchAsyncErrors(async (req, res, next) => {
       size || variant.size,
       color || variant.color,
       material || variant.material,
-      price !== undefined ? price : variant.price,
-      stock !== undefined ? stock : variant.stock,
+      price !== undefined ? parseFloat(price) : variant.price,
+      stock !== undefined ? parseInt(stock) : variant.stock,
       JSON.stringify(images),
-      is_default !== undefined ? is_default : variant.is_default,
+      isDefault !== undefined ? isDefault : variant.is_default,
       variantId
     ]
   );

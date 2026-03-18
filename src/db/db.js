@@ -1,20 +1,30 @@
 import pkg from "pg";
-const { Client } = pkg;
+import dotenv from "dotenv";
 
-const database = new Client({
-  user: process.env.DB_USER || "postgres",
-  host: process.env.DB_HOST || "localhost",
-  database: process.env.DB_DATABASE || "pern_ecommerce_store",
-  password: process.env.DB_PASSWORD || "alok@pgadmin",
-  port: process.env.DB_PORT || 5432,
+dotenv.config();
+
+const { Pool } = pkg;
+
+const database = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: { rejectUnauthorized: false },
 });
 
-try {
-  await database.connect();
-  console.log("Connected to the database successfully");
-} catch (error) {
-  console.error("Database connection failed:", error);
-  process.exit(1);
-}
+database.connect((err, client, release) => {
+  if (err) {
+    console.error("Database connection failed:", err.message);
+  } else {
+    console.log("Database connected successfully using DATABASE_URL!");
+    release();
+  }
+});
 
+database.on('error', (err, client) => {
+  console.error('Unexpected error on idle client', err);
+  process.exit(-1);
+});
+
+console.log("Database pool initialized.");
+
+export const query = (text, params) => database.query(text, params);
 export default database;

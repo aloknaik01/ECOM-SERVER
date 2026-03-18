@@ -18,6 +18,7 @@ import { createAddressesTable } from "../models/addressesTable.js";
 import { createReturnsTable } from "../models/returnsTable.js";
 import { addImagesToReviews } from "../models/addImagesToReviews.js";
 import { addIconToProducts } from "../models/addIconToProducts.js";
+import { addSpecificationsToProducts } from "../models/addSpecificationsToProducts.js";
 
 export async function createTables() {
   await createUserTable();
@@ -46,4 +47,5 @@ export async function createTables() {
   // MIGRATIONS
   await addImagesToReviews();
   await addIconToProducts();
+  await addSpecificationsToProducts();
 }

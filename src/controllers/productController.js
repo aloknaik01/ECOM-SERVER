@@ -8,7 +8,7 @@ import database from "../db/db.js";
 // ADMIN ROUTES
 // POST /api/v1/product/admin/create
 export const createProduct = catchAsyncErrors(async (req, res, next) => {
-  const { name, description, price, category, stock, directImageUrls, icon } = req.body;
+  const { name, description, price, category, stock, directImageUrls, icon, specifications } = req.body;
   const created_by = req.user.id;
   const vendor_id = req.vendor ? req.vendor.id : null;
 
@@ -52,9 +52,9 @@ export const createProduct = catchAsyncErrors(async (req, res, next) => {
   }
 
   const product = await database.query(
-    `INSERT INTO products (name, description, price, category, stock, images, created_by, vendor_id, icon)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
-    [name, description, price, category, stock, JSON.stringify(uploadedImages), created_by, vendor_id, icon]
+    `INSERT INTO products (name, description, price, category, stock, images, created_by, vendor_id, icon, specifications)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
+    [name, description, price, category, stock, JSON.stringify(uploadedImages), created_by, vendor_id, icon, specifications || '[]']
   );
 
   res.status(201).json({
@@ -67,7 +67,7 @@ export const createProduct = catchAsyncErrors(async (req, res, next) => {
 // PUT /api/v1/product/admin/update/:id
 export const updateProduct = catchAsyncErrors(async (req, res, next) => {
   const { id } = req.params;                                        // ← fixed from productId
-  const { name, description, price, category, stock, directImageUrls, icon } = req.body;
+  const { name, description, price, category, stock, directImageUrls, icon, specifications } = req.body;
 
   if (!name || !description || !price || !category || !stock) {
     return next(
@@ -133,9 +133,9 @@ export const updateProduct = catchAsyncErrors(async (req, res, next) => {
 
   const result = await database.query(
     `UPDATE products
-     SET name = $1, description = $2, price = $3, category = $4, stock = $5, images = $6, icon = $7
-     WHERE id = $8 RETURNING *`,
-    [name, description, price, category, stock, JSON.stringify(images), icon, id]
+     SET name = $1, description = $2, price = $3, category = $4, stock = $5, images = $6, icon = $7, specifications = $8
+     WHERE id = $9 RETURNING *`,
+    [name, description, price, category, stock, JSON.stringify(images), icon, specifications, id]
   );
 
   res.status(200).json({
