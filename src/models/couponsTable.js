@@ -23,6 +23,6 @@ export async function createCouponsTable() {
     console.log("Coupons Table Created Successfully");
   } catch (error) {
     console.error("Failed To Create Coupons Table.", error);
-    process.exit(1);
+    throw error;
   }
 }

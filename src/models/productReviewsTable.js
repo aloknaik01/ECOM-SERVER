@@ -13,6 +13,6 @@ export async function createProductReviewsTable() {
     await database.query(query);
   } catch (error) {
     console.error("Failed To Create Products Reviews Table.", error);
-    process.exit(1);
+    throw error;
   }
 }

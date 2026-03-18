@@ -25,6 +25,6 @@ export async function createProductVariantsTable() {
     console.log("Product Variants Table Created Successfully");
   } catch (error) {
     console.error("Failed To Create Product Variants Table.", error);
-    process.exit(1);
+    throw error;
   }
 }

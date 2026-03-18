@@ -17,6 +17,6 @@ export async function createFlashSalesTable() {
     `);
   } catch (error) {
     console.error("Failed To Create Flash Sales Table.", error);
-    process.exit(1);
+    throw error;
   }
 }

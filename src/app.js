@@ -29,6 +29,30 @@ const app = express();
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || "sk_test_dummy_key");
 // console.log("Stripe Key:", process.env.STRIPE_SECRET_KEY);
 
+async function initDatabase({ retries = 5 } = {}) {
+  let lastErr;
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      await createTables();
+      console.log("Database tables ensured.");
+      return;
+    } catch (err) {
+      lastErr = err;
+      const waitMs = Math.min(30_000, 1000 * 2 ** (attempt - 1));
+      console.error(
+        `Database initialization failed (attempt ${attempt}/${retries}). Retrying in ${waitMs}ms.`,
+        err?.message || err
+      );
+      await new Promise((r) => setTimeout(r, waitMs));
+    }
+  }
+
+  console.error(
+    "Database initialization failed after all retries. Server will continue running, but DB-backed endpoints will fail until connectivity is restored.",
+    lastErr?.message || lastErr
+  );
+}
+
 app.use(
   cors({
     origin: [process.env.FRONTEND_URL, process.env.DASHBOARD_URL],
@@ -194,7 +218,7 @@ app.use("/api/v1/return", returnRouter);
 app.use("/api/v1/flash-sale", flashSaleRouter);
 
 // Create database tables
-createTables();
+void initDatabase();
 
 // Error handling middleware
 app.use(errorMiddleware);

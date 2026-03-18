@@ -19,6 +19,6 @@ export async function createCouponUsageTable() {
     console.log("Coupon Usage Table Created Successfully");
   } catch (error) {
     console.error("Failed To Create Coupon Usage Table.", error);
-    process.exit(1);
+    throw error;
   }
 }

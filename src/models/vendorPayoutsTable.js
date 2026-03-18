@@ -24,6 +24,6 @@ export async function createVendorPayoutsTable() {
     console.log("Vendor Payouts Table Created Successfully");
   } catch (error) {
     console.error("Failed To Create Vendor Payouts Table.", error);
-    process.exit(1);
+    throw error;
   }
 }

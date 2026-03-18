@@ -30,6 +30,6 @@ export async function addVendorToProducts() {
     }
   } catch (error) {
     console.error("Failed to add vendor_id to products:", error);
-    process.exit(1);
+    throw error;
   }
 }

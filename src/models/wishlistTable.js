@@ -16,6 +16,6 @@ export async function createWishlistTable() {
     console.log("Wishlist Table Created Successfully");
   } catch (error) {
     console.error("Failed To Create Wishlist Table.", error);
-    process.exit(1);
+    throw error;
   }
 }

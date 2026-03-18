@@ -15,6 +15,6 @@ export async function createShippingInfoTable() {
     await database.query(query);
   } catch (error) {
     console.error("Failed To Create Shipping Info Table.", error);
-    process.exit(1);
+    throw error;
   }
 }

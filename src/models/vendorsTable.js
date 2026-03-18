@@ -36,6 +36,6 @@ export async function createVendorsTable() {
     console.log("Vendors Table Created Successfully");
   } catch (error) {
     console.error("Failed To Create Vendors Table.", error);
-    process.exit(1);
+    throw error;
   }
 }
