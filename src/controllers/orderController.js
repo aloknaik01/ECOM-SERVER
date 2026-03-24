@@ -3,7 +3,8 @@ import { catchAsyncErrors } from "../middlewares/catchAsyncError.js";
 import database from "../db/db.js";
 import { generatePaymentIntent } from "../utils/generatePaymentIntent.js";
 import { sendEmail } from "../utils/sendEmail.js";
-import { orderConfirmationTemplate, orderShippedTemplate, orderDeliveredTemplate } from "../utils/emailTemplates.js";
+import { orderShippedTemplate, orderDeliveredTemplate } from "../utils/emailTemplates.js";
+import { finalizeOrderAfterPayment } from "../utils/paymentProcessing.js";
 
 export const placeNewOrder = catchAsyncErrors(async (req, res, next) => {
   const {
@@ -128,8 +129,48 @@ export const placeNewOrder = catchAsyncErrors(async (req, res, next) => {
   res.status(200).json({
     success: true,
     message: "Order placed successfully. Please proceed to payment.",
+    orderId,
     paymentIntent: paymentResponse.clientSecret,
     total_price,
+  });
+});
+
+export const confirmCashOnDeliveryOrder = catchAsyncErrors(async (req, res, next) => {
+  const { orderId } = req.params;
+  if (!orderId) {
+    return next(new ErrorHandler("Order ID is required.", 400));
+  }
+
+  const orderResult = await database.query(
+    `SELECT id, buyer_id, paid_at FROM orders WHERE id = $1 LIMIT 1`,
+    [orderId]
+  );
+
+  if (orderResult.rows.length === 0) {
+    return next(new ErrorHandler("Order not found.", 404));
+  }
+
+  const order = orderResult.rows[0];
+  if (order.buyer_id !== req.user.id) {
+    return next(new ErrorHandler("Not authorized to update this order.", 403));
+  }
+
+  await database.query(
+    `INSERT INTO payments (order_id, payment_type, payment_status, payment_intent_id)
+     VALUES ($1, 'Online', 'Paid', $2)
+     ON CONFLICT (order_id)
+     DO UPDATE SET payment_status = 'Paid', payment_intent_id = EXCLUDED.payment_intent_id`,
+    [orderId, `COD-${orderId}`]
+  );
+
+  if (!order.paid_at) {
+    await finalizeOrderAfterPayment(orderId);
+  }
+
+  res.status(200).json({
+    success: true,
+    message: "Cash on Delivery selected. Order confirmed.",
+    orderId,
   });
 });
 

@@ -2,6 +2,7 @@ import express from "express";
 import {
   fetchSingleOrder,
   placeNewOrder,
+  confirmCashOnDeliveryOrder,
   fetchMyOrders,
   fetchAllOrders,
   updateOrderStatus,
@@ -14,8 +15,9 @@ import {
 
 const router = express.Router();
 router.post("/new", isAuthenticated, placeNewOrder);
-router.get("/:orderId", isAuthenticated, fetchSingleOrder);
+router.post("/:orderId/confirm-cod", isAuthenticated, confirmCashOnDeliveryOrder);
 router.get("/orders/me", isAuthenticated, fetchMyOrders);
+router.get("/:orderId", isAuthenticated, fetchSingleOrder);
 router.get(
   "/admin/getall",
   isAuthenticated,

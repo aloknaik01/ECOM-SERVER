@@ -16,10 +16,9 @@ import wishlistRouter from "./router/wishlistRoutes.js";
 import addressRouter from "./router/addressRoutes.js";
 import returnRouter from "./router/returnRoutes.js";
 import flashSaleRouter from "./router/flashSaleRoutes.js";
-import { sendEmail } from "./utils/sendEmail.js";
-import { orderConfirmationTemplate } from "./utils/emailTemplates.js";
 import Stripe from "stripe";
 import database from "./db/db.js";
+import { finalizeOrderAfterPayment } from "./utils/paymentProcessing.js";
 
 dotenv.config();
 
@@ -82,109 +81,40 @@ app.post(
 
     // Handle the event
     if (event.type === "payment_intent.succeeded") {
-      const paymentIntent_client_secret = event.data.object.client_secret;
+      const paymentIntentId = event.data.object.id;
 
       try {
         // Update payment status
         const updatedPaymentStatus = "Paid";
         const paymentTableUpdateResult = await database.query(
           `UPDATE payments SET payment_status = $1 WHERE payment_intent_id = $2 RETURNING *`,
-          [updatedPaymentStatus, paymentIntent_client_secret]
+          [updatedPaymentStatus, paymentIntentId]
         );
 
         if (paymentTableUpdateResult.rows.length === 0) {
-          console.error("Payment not found for client_secret:", paymentIntent_client_secret);
+          console.error("Payment not found for payment intent:", paymentIntentId);
           return res.status(404).send("Payment not found");
         }
 
-        // Update order paid_at timestamp
-        await database.query(
-          `UPDATE orders SET paid_at = NOW() WHERE id = $1 RETURNING *`,
-          [paymentTableUpdateResult.rows[0].order_id]
-        );
-
-        // Reduce stock for each product
         const orderId = paymentTableUpdateResult.rows[0].order_id;
-        const { rows: orderedItems } = await database.query(
-          `SELECT id, product_id, quantity, price FROM order_items WHERE order_id = $1`,
-          [orderId]
-        );
-
-        // Update stock and process vendor sales for each item
-        for (const item of orderedItems) {
-          await database.query(
-            `UPDATE products SET stock = stock - $1 WHERE id = $2`,
-            [item.quantity, item.product_id]
-          );
-
-          // Check if item belongs to a vendor
-          const { rows: prodWithVendor } = await database.query(
-            `SELECT p.vendor_id, v.commission_rate
-             FROM products p
-             LEFT JOIN vendors v ON p.vendor_id = v.id
-             WHERE p.id = $1`,
-            [item.product_id]
-          );
-
-          if (prodWithVendor.length > 0 && prodWithVendor[0].vendor_id) {
-            const vendor_id = prodWithVendor[0].vendor_id;
-            const commission_rate = prodWithVendor[0].commission_rate || 0;
-            const sale_amount = item.price * item.quantity;
-            const commission_amount = (sale_amount * commission_rate) / 100;
-            const vendor_earnings = sale_amount - commission_amount;
-
-            await database.query(
-              `INSERT INTO vendor_sales 
-                (vendor_id, order_id, order_item_id, product_id, quantity, sale_amount, commission_rate, commission_amount, vendor_earnings)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-              [
-                vendor_id, orderId, item.id, item.product_id, item.quantity,
-                sale_amount, commission_rate, commission_amount, vendor_earnings
-              ]
-            );
-
-            // Update vendor pending balance
-            await database.query(
-              `UPDATE vendors SET pending_balance = pending_balance + $1 WHERE id = $2`,
-              [vendor_earnings, vendor_id]
-            );
-          }
-        }
-
-        // Send Confirmation Email
-        const orderData = await database.query(
-          `SELECT o.*, u.email, u.name 
-           FROM orders o 
-           JOIN users u ON o.buyer_id = u.id 
-           WHERE o.id = $1`,
-          [orderId]
-        );
-        const shippingData = await database.query(`SELECT * FROM shipping_info WHERE order_id = $1`, [orderId]);
-        const itemsData = await database.query(`SELECT * FROM order_items WHERE order_id = $1`, [orderId]);
-
-        if (orderData.rows.length > 0) {
-          const order = orderData.rows[0];
-          try {
-            await sendEmail({
-              email: order.email,
-              subject: "Order Confirmed - ShopEase",
-              message: orderConfirmationTemplate({
-                userName: order.name,
-                orderId: orderId,
-                totalPrice: order.total_price,
-                items: itemsData.rows,
-                shippingAddress: shippingData.rows[0]
-              })
-            });
-          } catch (e) {
-            console.error("Failed to send confirmation email:", e.message);
-          }
-        }
+        await finalizeOrderAfterPayment(orderId);
 
         console.log("Payment successful, order updated:", orderId);
       } catch (error) {
         console.error("Error processing webhook:", error);
         return res.status(500).send("Error updating order");
+      }
+    }
+
+    if (event.type === "payment_intent.payment_failed") {
+      const paymentIntentId = event.data.object.id;
+      try {
+        await database.query(
+          `UPDATE payments SET payment_status = 'Failed' WHERE payment_intent_id = $1`,
+          [paymentIntentId]
+        );
+      } catch (error) {
+        console.error("Failed to mark payment failed:", error);
       }
     }
 
