@@ -1,0 +1,1046 @@
+import { catchAsyncErrors } from "../middlewares/catchAsyncError.js";
+import ErrorHandler from "../middlewares/errorMiddleware.js";
+import { v2 as cloudinary } from "cloudinary";
+import { getAIRecommendation } from "../utils/getAIRecommendation.js";
+import { parseUserIntent } from "../utils/parseUserIntent.js";
+import database from "../db/db.js";
+
+
+// ADMIN ROUTES
+// POST /api/v1/product/admin/create
+export const createProduct = catchAsyncErrors(async (req, res, next) => {
+  const { name, description, price, category, stock, directImageUrls, icon, specifications } = req.body;
+  const created_by = req.user.id;
+  const vendor_id = req.vendor ? req.vendor.id : null;
+
+  if (!name || !description || !price || !category || !stock) {
+    return next(
+      new ErrorHandler("Please provide complete product details.", 400)
+    );
+  }
+
+  let uploadedImages = [];
+
+  // Handle direct URLs if provided
+  if (directImageUrls) {
+    const urls = Array.isArray(directImageUrls) ? directImageUrls : [directImageUrls];
+    urls.forEach(url => {
+      if (url && url.trim()) {
+        uploadedImages.push({
+          url: url.trim(),
+          public_id: `url_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+        });
+      }
+    });
+  }
+
+  if (req.files && req.files.images) {
+    const images = Array.isArray(req.files.images)
+      ? req.files.images
+      : [req.files.images];
+
+    for (const image of images) {
+      const result = await cloudinary.uploader.upload(image.tempFilePath, {
+        folder: "Ecommerce_Product_Images",
+        width: 1000,
+        crop: "scale",
+      });
+      uploadedImages.push({
+        url: result.secure_url,
+        public_id: result.public_id,
+      });
+    }
+  }
+
+  const product = await database.query(
+    `INSERT INTO products (name, description, price, category, stock, images, created_by, vendor_id, icon, specifications)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
+    [name, description, price, category, stock, JSON.stringify(uploadedImages), created_by, vendor_id, icon, specifications || '[]']
+  );
+
+  res.status(201).json({
+    success: true,
+    message: "Product created successfully.",
+    product: product.rows[0],
+  });
+});
+
+// PUT /api/v1/product/admin/update/:id
+export const updateProduct = catchAsyncErrors(async (req, res, next) => {
+  const { id } = req.params;                                        // ← fixed from productId
+  const { name, description, price, category, stock, directImageUrls, icon, specifications } = req.body;
+
+  if (!name || !description || !price || !category || !stock) {
+    return next(
+      new ErrorHandler("Please provide complete product details.", 400)
+    );
+  }
+
+  const product = await database.query("SELECT * FROM products WHERE id = $1", [id]);
+  if (product.rows.length === 0) {
+    return next(new ErrorHandler("Product not found.", 404));
+  }
+
+  // Security check: if user is vendor, verify ownership
+  if (req.vendor && product.rows[0].vendor_id !== req.vendor.id) {
+    return next(new ErrorHandler("You don't have permission to edit this product.", 403));
+  }
+
+  // ── handle new image uploads or URL updates ──────────────────────────────────
+  let images = product.rows[0].images; // keep existing images by default
+
+  if ((req.files && req.files.images) || directImageUrls) {
+    // delete old images from cloudinary if we are replacing them
+    if (images && images.length > 0) {
+      for (const img of images) {
+        // Only destroy if it looks like a cloudinary ID (not a direct URL pseudo-id)
+        if (img.public_id && !img.public_id.startsWith('url_')) {
+          await cloudinary.uploader.destroy(img.public_id);
+        }
+      }
+    }
+
+    images = [];
+
+    // Add direct URLs if provided
+    if (directImageUrls) {
+      const urls = Array.isArray(directImageUrls) ? directImageUrls : [directImageUrls];
+      urls.forEach(url => {
+        if (url && url.trim()) {
+          images.push({
+            url: url.trim(),
+            public_id: `url_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+          });
+        }
+      });
+    }
+
+    // Add uploaded files if provided
+    if (req.files && req.files.images) {
+      const newImages = Array.isArray(req.files.images)
+        ? req.files.images
+        : [req.files.images];
+
+      for (const image of newImages) {
+        const result = await cloudinary.uploader.upload(image.tempFilePath, {
+          folder: "Ecommerce_Product_Images",
+          width: 1000,
+          crop: "scale",
+        });
+        images.push({ url: result.secure_url, public_id: result.public_id });
+      }
+    }
+  }
+
+  const result = await database.query(
+    `UPDATE products
+     SET name = $1, description = $2, price = $3, category = $4, stock = $5, images = $6, icon = $7, specifications = $8
+     WHERE id = $9 RETURNING *`,
+    [name, description, price, category, stock, JSON.stringify(images), icon, specifications, id]
+  );
+
+  res.status(200).json({
+    success: true,
+    message: "Product updated successfully.",
+    updatedProduct: result.rows[0],
+  });
+});
+
+// DELETE /api/v1/product/admin/delete/:id
+export const deleteProduct = catchAsyncErrors(async (req, res, next) => {
+  const { id } = req.params;                                        // ← fixed from productId
+
+  const product = await database.query("SELECT * FROM products WHERE id = $1", [id]);
+  if (product.rows.length === 0) {
+    return next(new ErrorHandler("Product not found.", 404));
+  }
+
+  // Security check
+  if (req.vendor && product.rows[0].vendor_id !== req.vendor.id) {
+    return next(new ErrorHandler("You don't have permission to delete this product.", 403));
+  }
+
+  const images = product.rows[0].images;
+
+  const deleteResult = await database.query(
+    "DELETE FROM products WHERE id = $1 RETURNING *",
+    [id]
+  );
+  if (deleteResult.rows.length === 0) {
+    return next(new ErrorHandler("Failed to delete product.", 500));
+  }
+
+  // delete images from Cloudinary
+  if (images && images.length > 0) {
+    for (const image of images) {
+      await cloudinary.uploader.destroy(image.public_id);
+    }
+  }
+
+  res.status(200).json({
+    success: true,
+    message: "Product deleted successfully.",
+  });
+});
+
+// GET /api/v1/product/admin/all
+// Full product list for admin panel — includes review count, sold count, pagination & search
+export const getAllProductsAdmin = catchAsyncErrors(async (req, res, next) => {
+  const page = parseInt(req.query.page) || 1;
+  const limit = parseInt(req.query.limit) || 10;
+  const offset = (page - 1) * limit;
+
+  const { search, category, minPrice, maxPrice, minStock, maxStock, sortBy, sortOrder } = req.query;
+
+  const conditions = [];
+  const values = [];
+  let idx = 1;
+
+  // If vendor, only show their products
+  if (req.vendor) {
+    conditions.push(`p.vendor_id = $${idx}`);
+    values.push(req.vendor.id);
+    idx++;
+  }
+
+  if (search) {
+    conditions.push(`(p.name ILIKE $${idx} OR p.description ILIKE $${idx})`);
+    values.push(`%${search}%`);
+    idx++;
+  }
+  if (category) {
+    conditions.push(`p.category ILIKE $${idx}`);
+    values.push(`%${category}%`);
+    idx++;
+  }
+  if (minPrice !== undefined && minPrice !== "") {
+    conditions.push(`p.price >= $${idx}`);
+    values.push(Number(minPrice));
+    idx++;
+  }
+  if (maxPrice !== undefined && maxPrice !== "") {
+    conditions.push(`p.price <= $${idx}`);
+    values.push(Number(maxPrice));
+    idx++;
+  }
+  if (minStock !== undefined && minStock !== "") {
+    conditions.push(`p.stock >= $${idx}`);
+    values.push(Number(minStock));
+    idx++;
+  }
+  if (maxStock !== undefined && maxStock !== "") {
+    conditions.push(`p.stock <= $${idx}`);
+    values.push(Number(maxStock));
+    idx++;
+  }
+
+  const whereClause = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+
+  // allowed sort columns (whitelist to prevent SQL injection)
+  const allowedSort = ["name", "price", "stock", "created_at", "ratings", "total_sold"];
+  const column = allowedSort.includes(sortBy) ? sortBy : "created_at";
+  const direction = sortOrder === "asc" ? "ASC" : "DESC";
+
+  // total count
+  const countResult = await database.query(
+    `SELECT COUNT(*) FROM products p ${whereClause}`,
+    values
+  );
+  const totalProducts = parseInt(countResult.rows[0].count);
+
+  // main query – join reviews for count, subquery for sold units
+  const query = `
+    SELECT
+      p.*,
+      COUNT(DISTINCT r.id)                          AS review_count,
+      COALESCE(sold.total_sold, 0)                  AS total_sold,
+      u.name                                        AS created_by_name
+    FROM products p
+    LEFT JOIN reviews r        ON p.id = r.product_id
+    LEFT JOIN users u          ON p.created_by = u.id
+    LEFT JOIN (
+      SELECT oi.product_id, SUM(oi.quantity) AS total_sold
+      FROM order_items oi
+      JOIN orders o ON o.id = oi.order_id
+      WHERE o.paid_at IS NOT NULL
+      GROUP BY oi.product_id
+    ) sold ON sold.product_id = p.id
+    ${whereClause}
+    GROUP BY p.id, sold.total_sold, u.name
+    ORDER BY ${column === "total_sold" ? "sold.total_sold" : "p." + column} ${direction}
+    LIMIT $${idx} OFFSET $${idx + 1}
+  `;
+  values.push(limit, offset);
+
+  const result = await database.query(query, values);
+
+  res.status(200).json({
+    success: true,
+    totalProducts,
+    currentPage: page,
+    totalPages: Math.ceil(totalProducts / limit),
+    limit,
+    products: result.rows,
+  });
+});
+
+// GET /api/v1/product/admin/statistics
+// Aggregate numbers for the admin dashboard
+export const getProductStatistics = catchAsyncErrors(async (req, res, next) => {
+  const vendorIdVal = req.vendor ? req.vendor.id : null;
+  const whereClause = vendorIdVal ? `WHERE vendor_id = ${vendorIdVal}` : "";
+  const whereClausePrefix = vendorIdVal ? `WHERE p.vendor_id = ${vendorIdVal}` : "";
+
+  // total products
+  const totalProductsRes = await database.query(`SELECT COUNT(*) FROM products ${whereClause}`);
+  const totalProducts = parseInt(totalProductsRes.rows[0].count);
+
+  // total inventory (sum of all stock)
+  const inventoryRes = await database.query(`SELECT COALESCE(SUM(stock), 0) AS total FROM products ${whereClause}`);
+  const totalInventory = parseInt(inventoryRes.rows[0].total);
+
+  // out-of-stock count
+  const outOfStockRes = await database.query(`SELECT COUNT(*) FROM products WHERE stock = 0 ${vendorIdVal ? 'AND vendor_id = ' + vendorIdVal : ''}`);
+  const outOfStock = parseInt(outOfStockRes.rows[0].count);
+
+  // low-stock count (1-5)
+  const lowStockRes = await database.query(`SELECT COUNT(*) FROM products WHERE stock BETWEEN 1 AND 5 ${vendorIdVal ? 'AND vendor_id = ' + vendorIdVal : ''}`);
+  const lowStock = parseInt(lowStockRes.rows[0].count);
+
+  // products by category
+  const categoriesRes = await database.query(`
+    SELECT category, COUNT(*) AS count
+    FROM products
+    ${whereClause}
+    GROUP BY category
+    ORDER BY count DESC
+  `);
+
+  // top 5 sold products (only paid orders)
+  const topSoldRes = await database.query(`
+    SELECT
+      p.id,
+      p.name,
+      p.price,
+      p.images,
+      p.category,
+      SUM(oi.quantity)  AS total_sold,
+      SUM(oi.quantity * oi.price) AS revenue
+    FROM order_items oi
+    JOIN products p ON p.id = oi.product_id
+    JOIN orders   o ON o.id = oi.order_id
+    WHERE o.paid_at IS NOT NULL
+    ${vendorIdVal ? `AND p.vendor_id = ${vendorIdVal}` : ''}
+    GROUP BY p.id
+    ORDER BY total_sold DESC
+    LIMIT 5
+  `);
+
+  // average product rating
+  const avgRatingRes = await database.query(`
+    SELECT COALESCE(AVG(ratings), 0) AS avg_rating FROM products ${whereClause}
+  `);
+  const avgRating = parseFloat(avgRatingRes.rows[0].avg_rating).toFixed(2);
+
+  // total revenue from all paid orders (Note: accurate vendor revenue is tracked in vendor_sales. This just shows naive calculation)
+  const revenueQuery = vendorIdVal
+    ? `SELECT COALESCE(SUM(oi.quantity * oi.price), 0) AS total FROM order_items oi JOIN orders o ON o.id = oi.order_id JOIN products p ON p.id = oi.product_id WHERE o.paid_at IS NOT NULL AND p.vendor_id = ${vendorIdVal}`
+    : `SELECT COALESCE(SUM(total_price), 0) AS total FROM orders WHERE paid_at IS NOT NULL`;
+  const revenueRes = await database.query(revenueQuery);
+  const totalRevenue = parseFloat(revenueRes.rows[0].total);
+
+  // total reviews across all products
+  const reviewsRes = await database.query(
+    vendorIdVal
+      ? `SELECT COUNT(*) FROM reviews r JOIN products p ON p.id = r.product_id WHERE p.vendor_id = ${vendorIdVal}`
+      : `SELECT COUNT(*) FROM reviews`
+  );
+  const totalReviews = parseInt(reviewsRes.rows[0].count);
+
+  res.status(200).json({
+    success: true,
+    statistics: {
+      totalProducts,
+      totalInventory,
+      outOfStock,
+      lowStock,
+      avgRating,
+      totalRevenue,
+      totalReviews,
+      productsByCategory: categoriesRes.rows,   // [{ category, count }]
+      topSoldProducts: topSoldRes.rows,       // [{ id, name, price, images, category, total_sold, revenue }]
+    },
+  });
+});
+
+
+// PUBLIC ROUTES
+
+// GET /api/v1/product/all
+// Full filterable, sortable, paginated product listing
+export const getAllProducts = catchAsyncErrors(async (req, res, next) => {
+  const page = parseInt(req.query.page) || 1;
+  const limit = parseInt(req.query.limit) || 12;
+  const offset = (page - 1) * limit;
+
+  const { category, minPrice, maxPrice, ratings, availability, sortBy, sortOrder } = req.query;
+
+  const conditions = [];
+  const values = [];
+  let idx = 1;
+
+  if (category) {
+    conditions.push(`p.category ILIKE $${idx}`);
+    values.push(`%${category}%`);
+    idx++;
+  }
+  if (minPrice !== undefined && minPrice !== "") {
+    conditions.push(`p.price >= $${idx}`);
+    values.push(Number(minPrice));
+    idx++;
+  }
+  if (maxPrice !== undefined && maxPrice !== "") {
+    conditions.push(`p.price <= $${idx}`);
+    values.push(Number(maxPrice));
+    idx++;
+  }
+  if (ratings) {
+    conditions.push(`p.ratings >= $${idx}`);
+    values.push(Number(ratings));
+    idx++;
+  }
+  // availability filter
+  if (availability === "in-stock") {
+    conditions.push(`p.stock > 5`);
+  } else if (availability === "limited") {
+    conditions.push(`p.stock BETWEEN 1 AND 5`);
+  } else if (availability === "out-of-stock") {
+    conditions.push(`p.stock = 0`);
+  }
+
+  const whereClause = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+
+  // sort
+  const allowedSort = ["price", "ratings", "created_at", "name"];
+  const column = allowedSort.includes(sortBy) ? sortBy : "created_at";
+  const direction = sortOrder === "asc" ? "ASC" : "DESC";
+
+  // total
+  const countRes = await database.query(`SELECT COUNT(*) FROM products p ${whereClause}`, values);
+  const totalProducts = parseInt(countRes.rows[0].count);
+
+  // products with review count
+  const query = `
+    SELECT p.*, COUNT(r.id) AS review_count
+    FROM products p
+    LEFT JOIN reviews r ON p.id = r.product_id
+    ${whereClause}
+    GROUP BY p.id
+    ORDER BY p.${column} ${direction}
+    LIMIT $${idx} OFFSET $${idx + 1}
+  `;
+  values.push(limit, offset);
+
+  const result = await database.query(query, values);
+
+  res.status(200).json({
+    success: true,
+    products: result.rows,
+    totalProducts,
+    currentPage: page,
+    totalPages: Math.ceil(totalProducts / limit),
+  });
+});
+
+// GET /api/v1/product/search?q=keyword
+export const searchProducts = catchAsyncErrors(async (req, res, next) => {
+  const { q } = req.query;
+  const page = parseInt(req.query.page) || 1;
+  const limit = parseInt(req.query.limit) || 12;
+  const offset = (page - 1) * limit;
+
+  if (!q || !q.trim()) {
+    return next(new ErrorHandler("Please provide a search keyword.", 400));
+  }
+
+  const pattern = `%${q.trim()}%`;
+
+  const countRes = await database.query(
+    `SELECT COUNT(*) FROM products
+     WHERE name ILIKE $1 OR description ILIKE $1 OR category ILIKE $1`,
+    [pattern]
+  );
+  const totalProducts = parseInt(countRes.rows[0].count);
+
+  const result = await database.query(
+    `SELECT p.*, COUNT(r.id) AS review_count
+     FROM products p
+     LEFT JOIN reviews r ON p.id = r.product_id
+     WHERE p.name ILIKE $1 OR p.description ILIKE $1 OR p.category ILIKE $1
+     GROUP BY p.id
+     ORDER BY p.created_at DESC
+     LIMIT $2 OFFSET $3`,
+    [pattern, limit, offset]
+  );
+
+  res.status(200).json({
+    success: true,
+    products: result.rows,
+    totalProducts,
+    currentPage: page,
+    totalPages: Math.ceil(totalProducts / limit),
+    keyword: q.trim(),
+  });
+});
+
+// GET /api/v1/product/categories
+export const getAllCategories = catchAsyncErrors(async (req, res, next) => {
+  const result = await database.query(`
+    SELECT
+      category,
+      COUNT(*)                                          AS product_count,
+      COALESCE(AVG(ratings), 0)                         AS avg_rating,
+      MIN(price)                                        AS min_price,
+      MAX(price)                                        AS max_price
+    FROM products
+    GROUP BY category
+    ORDER BY product_count DESC
+  `);
+
+  res.status(200).json({
+    success: true,
+    categories: result.rows,
+  });
+});
+
+// GET /api/v1/product/featured   (top-rated, stock > 0, limit 8)
+export const getFeaturedProducts = catchAsyncErrors(async (req, res, next) => {
+  const result = await database.query(`
+    SELECT p.*, COUNT(r.id) AS review_count
+    FROM products p
+    LEFT JOIN reviews r ON p.id = r.product_id
+    WHERE p.stock > 0 AND p.ratings >= 4.0
+    GROUP BY p.id
+    ORDER BY p.ratings DESC, p.created_at DESC
+    LIMIT 8
+  `);
+
+  res.status(200).json({
+    success: true,
+    featuredProducts: result.rows,
+  });
+});
+
+// GET /api/v1/product/new-arrivals   (last 30 days, limit 8)
+export const getNewArrivals = catchAsyncErrors(async (req, res, next) => {
+  const result = await database.query(`
+    SELECT p.*, COUNT(r.id) AS review_count
+    FROM products p
+    LEFT JOIN reviews r ON p.id = r.product_id
+    WHERE p.created_at >= NOW() - INTERVAL '30 days'
+    GROUP BY p.id
+    ORDER BY p.created_at DESC
+    LIMIT 8
+  `);
+
+  res.status(200).json({
+    success: true,
+    newArrivals: result.rows,
+  });
+});
+
+// GET /api/v1/product/category/:category
+export const getProductsByCategory = catchAsyncErrors(async (req, res, next) => {
+  const { category } = req.params;
+  const page = parseInt(req.query.page) || 1;
+  const limit = parseInt(req.query.limit) || 12;
+  const offset = (page - 1) * limit;
+
+  const countRes = await database.query(
+    "SELECT COUNT(*) FROM products WHERE category ILIKE $1",
+    [`%${category}%`]
+  );
+  const totalProducts = parseInt(countRes.rows[0].count);
+
+  if (totalProducts === 0) {
+    return res.status(200).json({
+      success: true,
+      products: [],
+      totalProducts: 0,
+      currentPage: page,
+      totalPages: 0,
+      category,
+    });
+  }
+
+  const result = await database.query(
+    `SELECT p.*, COUNT(r.id) AS review_count
+     FROM products p
+     LEFT JOIN reviews r ON p.id = r.product_id
+     WHERE p.category ILIKE $1
+     GROUP BY p.id
+     ORDER BY p.created_at DESC
+     LIMIT $2 OFFSET $3`,
+    [`%${category}%`, limit, offset]
+  );
+
+  res.status(200).json({
+    success: true,
+    products: result.rows,
+    totalProducts,
+    currentPage: page,
+    totalPages: Math.ceil(totalProducts / limit),
+    category,
+  });
+});
+
+// GET /api/v1/product/:id
+export const getProductById = catchAsyncErrors(async (req, res, next) => {
+  const { id } = req.params;
+
+  const result = await database.query(
+    `SELECT p.*,
+            COALESCE(
+              json_agg(
+                json_build_object(
+                  'review_id', r.id,
+                  'rating',    r.rating,
+                  'comment',   r.comment,
+                  'images',    r.images,
+                  'created_at', r.created_at,
+                  'reviewer',  json_build_object(
+                                 'id',     u.id,
+                                 'name',   u.name,
+                                 'avatar', u.avatar
+                               )
+                )
+              ) FILTER (WHERE r.id IS NOT NULL),
+              '[]'
+            ) AS reviews,
+            (SELECT json_build_object('discount_percent', fs.discount_percent, 'end_time', fs.end_time) 
+             FROM flash_sales fs 
+             WHERE fs.product_id = p.id AND fs.start_time <= NOW() AND fs.end_time >= NOW() AND fs.is_active = TRUE
+             LIMIT 1) AS active_flash_sale
+     FROM products p
+     LEFT JOIN reviews r ON p.id = r.product_id
+     LEFT JOIN users   u ON r.user_id = u.id
+     WHERE p.id = $1
+     GROUP BY p.id`,
+    [id]
+  );
+
+  if (result.rows.length === 0) {
+    return next(new ErrorHandler("Product not found.", 404));
+  }
+
+  res.status(200).json({
+    success: true,
+    product: result.rows[0],
+  });
+});
+
+// GET /api/v1/product/:id/related
+// Same category, exclude current product, limit 8
+export const getRelatedProducts = catchAsyncErrors(async (req, res, next) => {
+  const { id } = req.params;
+
+  // fetch the category of the requested product
+  const productRes = await database.query(
+    "SELECT category FROM products WHERE id = $1",
+    [id]
+  );
+
+  if (productRes.rows.length === 0) {
+    return next(new ErrorHandler("Product not found.", 404));
+  }
+
+  const { category } = productRes.rows[0];
+
+  const result = await database.query(
+    `SELECT p.*, COUNT(r.id) AS review_count
+     FROM products p
+     LEFT JOIN reviews r ON p.id = r.product_id
+     WHERE p.category = $1 AND p.id <> $2
+     GROUP BY p.id
+     ORDER BY p.ratings DESC
+     LIMIT 8`,
+    [category, id]
+  );
+
+  res.status(200).json({
+    success: true,
+    relatedProducts: result.rows,
+  });
+});
+
+
+// REVIEWS  (kept from original — routes will be added back)
+
+// PUT /api/v1/product/review/post/:productId
+export const postProductReview = catchAsyncErrors(async (req, res, next) => {
+  const { productId } = req.params;
+  const { rating, comment } = req.body;
+
+  if (!rating || !comment) {
+    return next(new ErrorHandler("Please provide rating and comment.", 400));
+  }
+
+  // Handle Review Images
+  let reviewImages = [];
+  if (req.files && req.files.images) {
+    const images = Array.isArray(req.files.images)
+      ? req.files.images
+      : [req.files.images];
+
+    for (const image of images) {
+      const result = await cloudinary.uploader.upload(image.tempFilePath, {
+        folder: "Review_Images",
+        width: 800,
+        crop: "scale",
+      });
+      reviewImages.push({
+        url: result.secure_url,
+        public_id: result.public_id,
+      });
+    }
+  }
+
+  // only allow reviews from verified purchasers
+  const purchaseCheck = await database.query(
+    `SELECT oi.product_id
+     FROM order_items oi
+     JOIN orders   o ON o.id  = oi.order_id
+     JOIN payments p ON p.order_id = o.id
+     WHERE o.buyer_id = $1
+       AND oi.product_id = $2
+       AND p.payment_status = 'Paid'
+     LIMIT 1`,
+    [req.user.id, productId]
+  );
+
+  if (purchaseCheck.rows.length === 0) {
+    return res.status(403).json({
+      success: false,
+      message: "You can only review a product you've purchased.",
+    });
+  }
+
+  const product = await database.query("SELECT * FROM products WHERE id = $1", [productId]);
+  if (product.rows.length === 0) {
+    return next(new ErrorHandler("Product not found.", 404));
+  }
+
+  // upsert review
+  const existing = await database.query(
+    "SELECT * FROM reviews WHERE product_id = $1 AND user_id = $2",
+    [productId, req.user.id]
+  );
+
+  let review;
+  if (existing.rows.length > 0) {
+    // Optionally delete old images from cloudinary if updating
+    const oldImages = existing.rows[0].images || [];
+    for (const img of oldImages) {
+      await cloudinary.uploader.destroy(img.public_id);
+    }
+
+    review = await database.query(
+      "UPDATE reviews SET rating = $1, comment = $2, images = $3 WHERE product_id = $4 AND user_id = $5 RETURNING *",
+      [rating, comment, JSON.stringify(reviewImages), productId, req.user.id]
+    );
+  } else {
+    review = await database.query(
+      "INSERT INTO reviews (product_id, user_id, rating, comment, images) VALUES ($1, $2, $3, $4, $5) RETURNING *",
+      [productId, req.user.id, rating, comment, JSON.stringify(reviewImages)]
+    );
+  }
+
+  // recalculate average rating on the product
+  const avgRes = await database.query(
+    "SELECT AVG(rating) AS avg_rating FROM reviews WHERE product_id = $1",
+    [productId]
+  );
+  const updatedProduct = await database.query(
+    "UPDATE products SET ratings = $1 WHERE id = $2 RETURNING *",
+    [avgRes.rows[0].avg_rating, productId]
+  );
+
+  res.status(200).json({
+    success: true,
+    message: "Review posted.",
+    review: review.rows[0],
+    product: updatedProduct.rows[0],
+  });
+});
+
+// DELETE /api/v1/product/review/delete/:productId
+export const deleteReview = catchAsyncErrors(async (req, res, next) => {
+  const { productId } = req.params;
+
+  const review = await database.query(
+    "DELETE FROM reviews WHERE product_id = $1 AND user_id = $2 RETURNING *",
+    [productId, req.user.id]
+  );
+
+  if (review.rows.length === 0) {
+    return next(new ErrorHandler("Review not found.", 404));
+  }
+
+  // recalculate average
+  const avgRes = await database.query(
+    "SELECT AVG(rating) AS avg_rating FROM reviews WHERE product_id = $1",
+    [productId]
+  );
+  const updatedProduct = await database.query(
+    "UPDATE products SET ratings = $1 WHERE id = $2 RETURNING *",
+    [avgRes.rows[0].avg_rating, productId]
+  );
+
+  res.status(200).json({
+    success: true,
+    message: "Your review has been deleted.",
+    review: review.rows[0],
+    product: updatedProduct.rows[0],
+  });
+});
+
+
+// AI SEARCH — Multilingual (Hindi, Hinglish, English, and more)
+
+// POST /api/v1/product/ai-search
+export const fetchAIFilteredProducts = catchAsyncErrors(async (req, res, next) => {
+  const { userPrompt } = req.body;
+  if (!userPrompt || !userPrompt.trim()) {
+    return next(new ErrorHandler("Provide a valid prompt.", 400));
+  }
+
+  // ── Phase 0: Extract structured intent from any language via Gemini ──────
+  const { intent } = await parseUserIntent(userPrompt);
+  console.log("[AI Search] Detected intent:", JSON.stringify(intent));
+
+  // ── Phase 1: Build SQL query ──────────────────────────────────────────────
+  //
+  // Strategy:
+  //   HARD constraints (AND) → only price range, min ratings, stock availability
+  //   SOFT match     (OR)   → keywords + category searched across ALL text fields
+  //                           (name, description, category, specifications)
+  //
+  // We never AND the category separately — it is included in the OR keyword search.
+  // This way if the DB has "Electronics" but Gemini returned "Mobile", the keyword
+  // "mobile" still matches the product name/description/specifications.
+
+  const hardConditions = [];   // joined with AND
+  const hardValues = [];
+  let idx = 1;
+
+  // ── Hard constraint: price range ──
+  if (intent.maxPrice !== null && intent.maxPrice !== undefined) {
+    hardConditions.push(`p.price <= $${idx}`);
+    hardValues.push(Number(intent.maxPrice));
+    idx++;
+  }
+  if (intent.minPrice !== null && intent.minPrice !== undefined) {
+    hardConditions.push(`p.price >= $${idx}`);
+    hardValues.push(Number(intent.minPrice));
+    idx++;
+  }
+
+  // ── Hard constraint: minimum rating ──
+  if (intent.minRatings !== null && intent.minRatings !== undefined) {
+    hardConditions.push(`p.ratings >= $${idx}`);
+    hardValues.push(Number(intent.minRatings));
+    idx++;
+  }
+
+  // ── Hard constraint: availability ──
+  if (intent.availability === "in-stock") {
+    hardConditions.push(`p.stock > 0`);
+  }
+
+  // ── Soft match: build all search terms ──
+  // Merge Gemini-extracted English keywords + detected category into one list
+  const rawKeywords = Array.isArray(intent.keywords) && intent.keywords.length > 0
+    ? [...intent.keywords]
+    : [];
+
+  // Add detected category as a search term
+  if (intent.category && !rawKeywords.includes(intent.category)) {
+    rawKeywords.push(intent.category);
+  }
+
+  // Auto-expand common synonyms so "mobile"/"phone" also matches "smartphone"
+  const synonymMap = {
+    mobile:     ["mobile", "smartphone", "phone", "android"],
+    phone:      ["phone", "smartphone", "mobile", "android"],
+    laptop:     ["laptop", "notebook", "computer"],
+    headphones: ["headphones", "headphone", "earphones", "earphone"],
+    earphones:  ["earphones", "earphone", "headphones", "headphone"],
+    camera:     ["camera", "dslr", "photography"],
+    tv:         ["tv", "television", "smart tv"],
+    tablet:     ["tablet", "ipad", "android tablet"],
+  };
+
+  const expandedKeywords = new Set(rawKeywords);
+  for (const kw of rawKeywords) {
+    const syns = synonymMap[kw.toLowerCase()];
+    if (syns) syns.forEach((s) => expandedKeywords.add(s));
+  }
+
+  // Fallback: if Gemini returned nothing useful, tokenise the raw prompt
+  if (expandedKeywords.size === 0) {
+    const stopWords = new Set(["ke", "ki", "ka", "ko", "se", "mujhe", "dikhao",
+      "chahiye", "andar", "upar", "wala", "wale", "the", "a", "an", "of", "and",
+      "or", "to", "for", "in", "on", "show", "me", "want", "need", "give"]);
+    userPrompt
+      .toLowerCase()
+      .replace(/[^\w\s]/g, "")
+      .split(/\s+/)
+      .filter((w) => w.length > 2 && !stopWords.has(w) && isNaN(Number(w)))
+      .slice(0, 6)
+      .forEach((w) => expandedKeywords.add(w));
+  }
+
+  const finalKeywords = [...expandedKeywords]; // e.g. ["mobile","smartphone","phone","android","Mobile"]
+
+  // Sort order
+  const allowedSort = ["price", "ratings", "created_at", "name"];
+  const sortColumn = allowedSort.includes(intent.sortBy) ? intent.sortBy : "created_at";
+  const sortDirection = intent.sortOrder === "asc" ? "ASC" : "DESC";
+
+  // ── Helper: build individual ILIKE OR conditions (more reliable than ILIKE ANY) ──
+  // Each keyword gets its own ILIKE condition on each field, all joined with OR.
+  // Returns { clause: string, values: array, nextIdx: number }
+  function buildIlikeConditions(keywords, startIdx, fields) {
+    const parts = [];
+    const vals = [];
+    let i = startIdx;
+    for (const kw of keywords) {
+      for (const field of fields) {
+        parts.push(`${field} ILIKE $${i}`);
+      }
+      vals.push(`%${kw.toLowerCase()}%`);
+      i++;
+    }
+    return { clause: parts.join(" OR "), vals, nextIdx: i };
+  }
+
+  const searchFields = [
+    "p.name",
+    "p.description",
+    "p.category",
+    "COALESCE(p.specifications::text, '')",
+  ];
+
+  let candidates = [];
+
+  if (finalKeywords.length > 0) {
+    // ── Primary query: hard constraints AND soft OR across all text fields ──
+    const { clause: softClause, vals: softVals, nextIdx } = buildIlikeConditions(
+      finalKeywords, idx, searchFields
+    );
+
+    const primaryWhere = [
+      ...hardConditions,
+      `(${softClause})`,
+    ].join(" AND ");
+
+    const primaryValues = [...hardValues, ...softVals];
+
+    console.log("[AI Search] Primary SQL WHERE:", primaryWhere);
+    console.log("[AI Search] Keywords:", finalKeywords);
+
+    const primaryResult = await database.query(
+      `SELECT p.*, COUNT(r.id) AS review_count
+       FROM products p
+       LEFT JOIN reviews r ON p.id = r.product_id
+       WHERE ${primaryWhere}
+       GROUP BY p.id
+       ORDER BY p.${sortColumn} ${sortDirection}
+       LIMIT 200`,
+      primaryValues
+    );
+    candidates = primaryResult.rows;
+    console.log(`[AI Search] Primary query: ${candidates.length} results.`);
+
+    // ── Fallback 1: drop price/rating hard constraints, keyword-only ──
+    if (candidates.length === 0) {
+      console.log("[AI Search] Fallback 1: keyword-only search (no price constraint).");
+      const { clause: f1Clause, vals: f1Vals } = buildIlikeConditions(
+        finalKeywords, 1, searchFields
+      );
+      const fallback1 = await database.query(
+        `SELECT p.*, COUNT(r.id) AS review_count
+         FROM products p
+         LEFT JOIN reviews r ON p.id = r.product_id
+         WHERE (${f1Clause})
+         GROUP BY p.id
+         ORDER BY p.${sortColumn} ${sortDirection}
+         LIMIT 200`,
+        f1Vals
+      );
+      candidates = fallback1.rows;
+      console.log(`[AI Search] Fallback 1: ${candidates.length} results.`);
+    }
+  } else {
+    // No keywords — use only hard constraints
+    if (hardConditions.length > 0) {
+      const result = await database.query(
+        `SELECT p.*, COUNT(r.id) AS review_count
+         FROM products p
+         LEFT JOIN reviews r ON p.id = r.product_id
+         WHERE ${hardConditions.join(" AND ")}
+         GROUP BY p.id
+         ORDER BY p.${sortColumn} ${sortDirection}
+         LIMIT 200`,
+        hardValues
+      );
+      candidates = result.rows;
+    }
+  }
+
+  // ── Fallback 2 (last resort): keywords matched nothing at all.
+  // If we still have a price/rating constraint, fetch ALL products satisfying
+  // just those constraints and let Gemini Phase 2 pick the right ones.
+  // This handles cases where phones are listed as "Samsung Galaxy" or "Redmi Note"
+  // — no word 'mobile'/'phone' in their name — but Gemini still identifies them.
+  if (candidates.length === 0 && hardConditions.length > 0) {
+    console.log("[AI Search] Fallback 2: price/rating-only query, relying on Gemini to filter.");
+    const whereClause = `WHERE ${hardConditions.join(" AND ")}`;
+    const lastResort = await database.query(
+      `SELECT p.*, COUNT(r.id) AS review_count
+       FROM products p
+       LEFT JOIN reviews r ON p.id = r.product_id
+       ${whereClause}
+       GROUP BY p.id
+       ORDER BY p.${sortColumn} ${sortDirection}
+       LIMIT 200`,
+      hardValues
+    );
+    candidates = lastResort.rows;
+    console.log(`[AI Search] Fallback 2 returned ${candidates.length} candidates for Gemini to filter.`);
+  }
+
+  if (candidates.length === 0) {
+    return res.status(200).json({
+      success: true,
+      message: "No products found matching your search. Try different keywords.",
+      products: [],
+      filtersDetected: { Language: intent.detectedLanguage || "Unknown" },
+    });
+  }
+
+  // ── Phase 2: Gemini re-ranks / refines the SQL candidates ────────────────
+  const { success, products, filtersDetected } = await getAIRecommendation(
+    userPrompt,
+    candidates,
+    intent
+  );
+
+  return res.status(200).json({
+    success,
+    message: "AI search complete.",
+    products,
+    filtersDetected,
+    detectedLanguage: intent.detectedLanguage || "Unknown",
+  });
+});
